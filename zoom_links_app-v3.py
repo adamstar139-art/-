@@ -7,6 +7,19 @@ from PIL import Image, ImageDraw
 import io
 import os
 import re
+import base64
+import tempfile
+
+# شعار المدرسة مضمّن Base64 (مع احتياطي حتى لا ينكسر مهما كان موقع التشغيل)
+try:
+    from logo_data import load_logo_b64
+    _LOGO_B64 = load_logo_b64()
+except Exception:
+    _LOGO_B64 = ""
+
+# مجلد الخطوط العربية الاحترافية المرفقة بجانب التطبيق
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_FONT_DIR = os.path.join(_APP_DIR, "fonts")
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والهوية البصرية (Saudi Theme & RTL)
@@ -80,51 +93,35 @@ st.markdown("""
 # 2. إنشاء شعار مدرسة الثغر وتنسيق الخطوط العربية (RTL)
 # ---------------------------------------------------------
 
+_LOGO_CACHE_PATH = None
+
 def create_thaghar_logo_file():
-    logo_path = "/workspace/scratch/thaghar_school_logo.png"
-    if os.path.exists(logo_path):
-        return logo_path
-    try:
-        w, h = 300, 300
-        img = Image.new('RGBA', (w, h), (255, 255, 255, 0))
-        draw = ImageDraw.Draw(img)
-        
-        green = (0, 108, 53, 255)
-        gold = (197, 160, 89, 255)
-        cx, cy = 150, 150
-        scale = 1.8
-        
-        b_pts_outer = [
-            (cx - int(60*scale), cy - int(10*scale)),
-            (cx - int(5*scale), cy + int(25*scale)),
-            (cx, cy + int(30*scale)),
-            (cx + int(5*scale), cy + int(25*scale)),
-            (cx + int(60*scale), cy - int(10*scale)),
-            (cx + int(65*scale), cy - int(5*scale)),
-            (cx + int(5*scale), cy + int(35*scale)),
-            (cx, cy + int(40*scale)),
-            (cx - int(5*scale), cy + int(35*scale)),
-            (cx - int(65*scale), cy - int(5*scale)),
-        ]
-        draw.polygon(b_pts_outer, fill=green)
-        
-        for offset, color in [(-10, green), (-3, gold), (3, green)]:
-            draw.line([
-                (cx - int(50*scale), cy - int(3*scale) + int(offset*scale)),
-                (cx - int(5*scale), cy + int(20*scale) + int(offset*scale))
-            ], fill=color, width=int(3*scale))
-            draw.line([
-                (cx + int(50*scale), cy - int(3*scale) + int(offset*scale)),
-                (cx + int(5*scale), cy + int(20*scale) + int(offset*scale))
-            ], fill=color, width=int(3*scale))
-            
-        draw.ellipse([cx - int(20*scale), cy - int(40*scale), cx - int(8*scale), cy - int(28*scale)], fill=green)
-        draw.ellipse([cx + int(8*scale), cy - int(40*scale), cx + int(20*scale), cy - int(28*scale)], fill=gold)
-        
-        img.save(logo_path)
-        return logo_path
-    except Exception:
-        return None
+    """يفكّ شعار المدرسة المضمّن (Base64) إلى ملف مؤقت ليستخدمه مولّد PDF.
+    يعتمد على الشعار الرسمي المرفوع، وليس رسمًا مؤقتًا."""
+    global _LOGO_CACHE_PATH
+    if _LOGO_CACHE_PATH and os.path.exists(_LOGO_CACHE_PATH):
+        return _LOGO_CACHE_PATH
+
+    # 1) الشعار الرسمي المضمّن Base64
+    if _LOGO_B64:
+        try:
+            raw = base64.b64decode(_LOGO_B64)
+            tmp = tempfile.NamedTemporaryFile(prefix="thaghr_logo_", suffix=".png", delete=False)
+            tmp.write(raw)
+            tmp.flush()
+            tmp.close()
+            _LOGO_CACHE_PATH = tmp.name
+            return _LOGO_CACHE_PATH
+        except Exception:
+            pass
+
+    # 2) شعار مرفق بجانب التطبيق (احتياطي)
+    for cand in ("school_logo.png", "logo.png", "thaghar_logo.png"):
+        p = os.path.join(_APP_DIR, cand)
+        if os.path.exists(p):
+            _LOGO_CACHE_PATH = p
+            return p
+    return None
 
 ARABIC_MAP = {
     'ا': ('ﺍ', 'ﺍ', 'ﺎ', 'ﺎ'),
@@ -172,16 +169,7 @@ LAM_ALEF_MAP = {
     ('ل', 'آ'): ('ﻵ', 'ﻶ'),
 }
 
-def fix_naskh(text):
-    if not text:
-        return ""
-    text = str(text)
-    text = text.replace('-', '\u2010')
-    text = text.replace('(', '\ufd3e').replace(')', '\ufd3f')
-    return text
-
 def ar(text):
-    text = fix_naskh(text)
     if not text: return ""
     text = str(text)
     trans_table = str.maketrans("()[]{}", ")(}{][")
@@ -324,131 +312,237 @@ def delete_record(record_id):
 # 4. دالة إنشاء تقرير PDF احترافي بنسب 100% بدون تداخل خطوط
 # ---------------------------------------------------------
 
+# ------- خطوط عربية احترافية: نسخ (للمتن) وكوفي (للعناوين) -------
+def _resolve_font(bundled_names, system_paths):
+    """يبحث أولاً عن الخط المرفق بجانب التطبيق ثم في خطوط النظام."""
+    for name in bundled_names:
+        p = os.path.join(_FONT_DIR, name)
+        if os.path.exists(p):
+            return p
+    for p in system_paths:
+        if os.path.exists(p):
+            return p
+    return None
+
+FONT_BODY = _resolve_font(
+    ["NotoNaskhArabic-Regular.ttf"],
+    ["/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+     "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"],
+)
+FONT_BODY_BOLD = _resolve_font(
+    ["NotoNaskhArabic-Bold.ttf"],
+    ["/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf",
+     "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"],
+)
+FONT_TITLE = _resolve_font(
+    ["NotoNaskhArabic-Bold.ttf"],
+    ["/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf",
+     "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"],
+)
+# خط لاتيني احتياطي للرموز وعلامات الترقيم والأقواس التي لا تتوفر في خط النسخ
+FONT_FALLBACK = _resolve_font(
+    ["DejaVuSans.ttf"],
+    ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
+)
+
+# ألوان الهوية البصرية
+CLR_GREEN = (0, 108, 53)
+CLR_GREEN_DARK = (0, 77, 37)
+CLR_GOLD = (197, 160, 89)
+CLR_GREY = (90, 90, 90)
+CLR_ROW = (244, 249, 245)
+
 class ThagharFPDF(FPDF):
     def header(self):
-        font_b = "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf"
-        font_r = "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"
-        
-        if not os.path.exists(font_b):
-            font_b = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
-        if not os.path.exists(font_r):
-            font_r = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+        # تسجيل الخطوط العربية الاحترافية (مرة واحدة)
+        if not getattr(self, "_fonts_ready", False):
+            self.add_font('MainReg', '', FONT_BODY)
+            self.add_font('MainBold', '', FONT_BODY_BOLD)
+            self.add_font('MainTitle', '', FONT_TITLE)
+            # خط احتياطي للرموز اللاتينية وعلامات الترقيم
+            if FONT_FALLBACK:
+                try:
+                    self.add_font('Fallback', '', FONT_FALLBACK)
+                    self.set_fallback_fonts(['Fallback'])
+                except Exception:
+                    pass
+            self._fonts_ready = True
 
-        self.add_font('MainBold', '', font_b)
-        self.add_font('MainReg', '', font_r)
-        
         # الشريط العلوي الأخضر والذهبي
-        self.set_fill_color(0, 108, 53)
-        self.rect(0, 0, 210, 4, 'F')
-        self.set_fill_color(197, 160, 89)
-        self.rect(0, 4, 210, 1.5, 'F')
-        
-        # شعار مدرسة الثغر
+        self.set_fill_color(*CLR_GREEN)
+        self.rect(0, 0, 210, 5, 'F')
+        self.set_fill_color(*CLR_GOLD)
+        self.rect(0, 5, 210, 1.6, 'F')
+
+        # شعار المدرسة الرسمي (يسار الترويسة)
         logo_img = create_thaghar_logo_file()
         if logo_img and os.path.exists(logo_img):
-            self.image(logo_img, x=15, y=9, w=22)
-            
+            try:
+                self.image(logo_img, x=14, y=10, h=26)
+            except Exception:
+                pass
+
         # نص الترويسة الرسمية
-        self.set_font('MainBold', size=14)
-        self.set_text_color(0, 108, 53)
+        self.set_y(10)
+        self.set_font('MainTitle', size=14)
+        self.set_text_color(*CLR_GREEN)
         self.cell(0, 8, ar("المملكة العربية السعودية - وزارة التعليم"), align='C', new_x='LMARGIN', new_y='NEXT')
-        
-        self.set_font('MainReg', size=11)
-        self.set_text_color(80, 80, 80)
+
+        self.set_font('MainReg', size=10.5)
+        self.set_text_color(*CLR_GREY)
         self.cell(0, 6, ar("إدارة التعليم بمحافظة الرياض"), align='C', new_x='LMARGIN', new_y='NEXT')
-        
-        self.set_font('MainBold', size=13)
-        self.set_text_color(0, 108, 53)
+
+        self.set_font('MainTitle', size=13)
+        self.set_text_color(*CLR_GREEN_DARK)
         self.cell(0, 8, ar("مدرسة متوسطة الثغر النموذجية الأهلية"), align='C', new_x='LMARGIN', new_y='NEXT')
-        
-        # خط فاصل ذهبي
-        self.set_draw_color(197, 160, 89)
-        self.set_line_width(0.8)
-        self.line(15, 36, 195, 36)
-        self.ln(6)
+
+        # خط فاصل ذهبي مزدوج
+        self.set_draw_color(*CLR_GOLD)
+        self.set_line_width(0.9)
+        self.line(14, 38, 196, 38)
+        self.set_draw_color(*CLR_GREEN)
+        self.set_line_width(0.3)
+        self.line(14, 39.2, 196, 39.2)
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-16)
+        self.set_draw_color(*CLR_GOLD)
+        self.set_line_width(0.5)
+        self.line(14, self.get_y(), 196, self.get_y())
+        self.ln(1.5)
+        self.set_font('MainReg', size=8)
+        self.set_text_color(130, 130, 130)
+        gen = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self.cell(0, 5, ar("متوسطة الثغر النموذجية الأهلية — الرياض") + "   |   " + ar("تاريخ الإصدار: ") + gen + "   |   " + ar("صفحة ") + str(self.page_no()), align='C')
 
 def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
     pdf = ThagharFPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
-    
-    # عنوان التقرير الرئاسي
-    pdf.set_font('MainBold', size=12)
-    pdf.set_fill_color(240, 248, 242)
-    pdf.set_draw_color(0, 108, 53)
-    pdf.set_text_color(0, 108, 53)
-    
-    title_str = f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})"
+
+    # شريط عنوان التقرير الرئيسي
+    pdf.set_font('MainTitle', size=12)
+    pdf.set_fill_color(*CLR_GREEN)
+    pdf.set_text_color(255, 255, 255)
+    title_str = f"تقرير روابط حصص الزوم اليومية — يوم {day_str} ({selected_date})"
+    pdf.cell(0, 11, ar(title_str), border=0, align='C', fill=True, new_x='LMARGIN', new_y='NEXT')
+
     if section_title:
-        title_str += f" - ({section_title})"
-        
-    pdf.cell(0, 10, ar(title_str), border=1, align='C', fill=True, new_x='LMARGIN', new_y='NEXT')
+        pdf.set_font('MainBold', size=10.5)
+        pdf.set_fill_color(*CLR_GOLD)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 8, ar(section_title), border=0, align='C', fill=True, new_x='LMARGIN', new_y='NEXT')
     pdf.ln(5)
-    
-    # ترتيب أعمدة الجدول من اليمين إلى اليسار (RTL Table)
-    col_widths = [38, 25, 25, 30, 32, 40]
+
+    # صندوق ملخّص سريع (عدد الحصص / المعلمين / الصفوف)
+    n_lessons = 0 if df is None or df.empty else len(df)
+    n_teachers = 0 if df is None or df.empty or 'teacher_name' not in df.columns else df['teacher_name'].nunique()
+    n_grades = 0 if df is None or df.empty or 'grade' not in df.columns else df['grade'].nunique()
+    pdf.set_font('MainReg', size=9.5)
+    pdf.set_text_color(*CLR_GREEN_DARK)
+    pdf.set_fill_color(240, 248, 242)
+    pdf.set_draw_color(*CLR_GOLD)
+    pdf.set_line_width(0.3)
+    summary = (f"إجمالي الحصص: {n_lessons}      •      عدد المعلمين: {n_teachers}"
+               f"      •      الصفوف: {n_grades}")
+    pdf.cell(0, 9, ar(summary), border=1, align='C', fill=True, new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(5)
+
+    # جدول من اليمين إلى اليسار (RTL)
+    col_widths = [40, 24, 26, 30, 32, 40]
     headers_rtl = ['رابط الحصة', 'الحصة', 'الفصل', 'الصف', 'المادة', 'المعلم']
-    
-    pdf.set_fill_color(0, 108, 53)
+    table_w = sum(col_widths)
+    x_start = (210 - table_w) / 2
+
+    pdf.set_x(x_start)
+    pdf.set_fill_color(*CLR_GREEN)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font('MainBold', size=10)
-    
+    pdf.set_draw_color(*CLR_GREEN_DARK)
+    pdf.set_line_width(0.2)
     for i, h in enumerate(headers_rtl):
-        pdf.cell(col_widths[i], 9, ar(h), border=1, align='C', fill=True)
+        pdf.cell(col_widths[i], 10, ar(h), border=1, align='C', fill=True)
     pdf.ln()
-    
-    pdf.set_text_color(0, 0, 0)
+
+    pdf.set_text_color(40, 40, 40)
     pdf.set_font('MainReg', size=9.5)
-    
-    if df.empty:
-        pdf.cell(sum(col_widths), 10, ar("لا توجد حصص مسجلة لهذا اليوم / الفصل"), border=1, align='C')
+    pdf.set_draw_color(210, 215, 210)
+
+    if df is None or df.empty:
+        pdf.set_x(x_start)
+        pdf.set_fill_color(252, 245, 245)
+        pdf.set_text_color(150, 60, 60)
+        pdf.cell(table_w, 11, ar("لا توجد حصص مسجلة لهذا اليوم / الفصل"), border=1, align='C', fill=True)
         pdf.ln()
     else:
         fill = False
         for _, row in df.iterrows():
-            pdf.set_fill_color(245, 248, 245) if fill else pdf.set_fill_color(255, 255, 255)
-            
-            # Col 0: Zoom Link (Leftmost)
+            pdf.set_x(x_start)
+            if fill:
+                pdf.set_fill_color(*CLR_ROW)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+
+            # العمود 0: رابط الزوم (قابل للنقر)
             zoom_url = str(row.get('zoom_link', ''))
-            pdf.set_text_color(0, 102, 204)
-            pdf.cell(col_widths[0], 8, ar("رابط الحصة"), border=1, align='C', fill=fill, link=zoom_url if zoom_url.startswith("http") else "")
-            pdf.set_text_color(0, 0, 0)
-            
-            # Cols 1 to 5
-            pdf.cell(col_widths[1], 8, ar(str(row.get('period', '-'))), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[2], 8, ar(str(row.get('section', '-'))), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[3], 8, ar(str(row.get('grade', '-'))), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[4], 8, ar(str(row.get('subject') or '-')), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[5], 8, ar(str(row.get('teacher_name', '-'))), border=1, align='C', fill=fill)
-            
+            pdf.set_text_color(0, 90, 180)
+            pdf.set_font('MainBold', size=9.5)
+            pdf.cell(col_widths[0], 8.5, ar("فتح الرابط"), border=1, align='C', fill=True,
+                     link=zoom_url if zoom_url.startswith("http") else "")
+            pdf.set_text_color(40, 40, 40)
+            pdf.set_font('MainReg', size=9.5)
+
+            pdf.cell(col_widths[1], 8.5, ar(str(row.get('period', '-'))), border=1, align='C', fill=True)
+            pdf.cell(col_widths[2], 8.5, ar(str(row.get('section', '-'))), border=1, align='C', fill=True)
+            pdf.cell(col_widths[3], 8.5, ar(str(row.get('grade', '-'))), border=1, align='C', fill=True)
+            pdf.cell(col_widths[4], 8.5, ar(str(row.get('subject') or '-')), border=1, align='C', fill=True)
+            pdf.cell(col_widths[5], 8.5, ar(str(row.get('teacher_name', '-'))), border=1, align='C', fill=True)
             pdf.ln()
             fill = not fill
-            
-    pdf.ln(12)
-    
-    # التوقيعات والاعتمادات الرسمية أسفل التقرير
+
+    pdf.ln(14)
+
+    # التوقيعات والاعتمادات الرسمية
     pdf.set_font('MainBold', size=9.5)
+    pdf.set_text_color(*CLR_GREEN_DARK)
     w_col = 60
-    pdf.cell(w_col, 6, ar("وكيل الشؤون الطلاب"), align='C')
+    pdf.cell(w_col, 6, ar("وكيل شؤون الطلاب"), align='C')
     pdf.cell(w_col, 6, ar("وكيل الشؤون التعليمية"), align='C')
     pdf.cell(w_col, 6, ar("مدير المدرسة"), align='C', new_x='LMARGIN', new_y='NEXT')
-    
+    pdf.ln(2)
+    pdf.set_draw_color(180, 180, 180)
+    pdf.set_line_width(0.2)
+    y_line = pdf.get_y()
+    for k in range(3):
+        cx = 15 + k * w_col
+        pdf.line(cx + 10, y_line, cx + w_col - 10, y_line)
+    pdf.ln(2)
     pdf.set_font('MainReg', size=9)
+    pdf.set_text_color(60, 60, 60)
     pdf.cell(w_col, 6, ar("صالح بن عبدالله الدعجاني"), align='C')
     pdf.cell(w_col, 6, ar("محمد مبروك السيد"), align='C')
     pdf.cell(w_col, 6, ar("إبراهيم بن موسى التميمي"), align='C', new_x='LMARGIN', new_y='NEXT')
-    
-    pdf.ln(4)
-    pdf.set_font('MainBold', size=9.5)
+
+    pdf.ln(6)
+    pdf.set_font('MainBold', size=9)
+    pdf.set_text_color(*CLR_GOLD)
     pdf.cell(0, 6, ar("المسؤول التقني والمنصة: محمد سامي السعيد"), align='C', new_x='LMARGIN', new_y='NEXT')
-    
+
     return bytes(pdf.output())
 
 # ---------------------------------------------------------
 # 5. الواجهة الرئيسية والتنقل بين الصفحات
 # ---------------------------------------------------------
 
-st.markdown("""
+_LOGO_DATA_URI = ("data:image/png;base64," + _LOGO_B64) if _LOGO_B64 else ""
+_logo_html = (f'<img src="{_LOGO_DATA_URI}" alt="شعار المدرسة" '
+              f'style="height:84px;margin-bottom:10px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.25));">'
+              if _LOGO_DATA_URI else '')
+
+st.markdown(f"""
 <div class="saudi-header">
+    {_logo_html}
     <h1>المملكة العربية السعودية - وزارة التعليم</h1>
     <h2>إدارة التعليم بمحافظة الرياض</h2>
     <h3>مدرسة متوسطة الثغر النموذجية الأهلية</h3>
