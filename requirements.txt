@@ -1,6 +1,7 @@
 streamlit
 pandas
-plotly
+sqlalchemy
+psycopg2-binary
+fpdf2
 openpyxl
-gspread
-google-auth
+requests
