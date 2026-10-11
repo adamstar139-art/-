@@ -691,6 +691,20 @@ if st.session_state["authenticated"]:
         st.rerun()
 
 DAYS_LIST = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"]
+# تطابق صحيح بين تاريخ بايثون (Monday=0 ... Sunday=6) واسم اليوم العربي
+AR_WEEKDAYS = {
+    0: "الإثنين",
+    1: "الثلاثاء",
+    2: "الأربعاء",
+    3: "الخميس",
+    4: "الجمعة",
+    5: "السبت",
+    6: "الأحد",
+}
+
+def arabic_day_name(d):
+    """يعيد اسم اليوم العربي الصحيح المطابق للتاريخ."""
+    return AR_WEEKDAYS.get(d.weekday(), "اليوم")
 GRADES_LIST = ["الأول متوسط", "الثاني متوسط", "الثالث متوسط"]
 PERIODS_LIST = ["الحصة الأولى", "الحصة الثانية", "الحصة الثالثة", "الحصة الرابعة", "الحصة الخامسة", "الحصة السادسة", "الحصة السابعة"]
 
@@ -731,8 +745,10 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
         else:
             teacher_name = teacher_select
             
-        day_name = st.selectbox("اليوم:", DAYS_LIST)
         lesson_date = st.date_input("تاريخ الحصة:", value=date.today())
+        # يُشتق اسم اليوم تلقائيًا من التاريخ لضمان التطابق
+        day_name = arabic_day_name(lesson_date)
+        st.text_input("اليوم (تلقائي حسب التاريخ):", value=day_name, disabled=True)
         subject = st.text_input("المادة الدراسية (مثال: المهارات الرقمية):")
         
     with col2:
@@ -804,7 +820,7 @@ else:
                 filter_section=selected_section_filter
             )
             
-            day_name_str = DAYS_LIST[selected_date.weekday() % 5] if selected_date.weekday() < 5 else "اليوم"
+            day_name_str = arabic_day_name(selected_date)
             
             st.markdown(f"### 📋 حصص يوم {day_name_str} الموافق ({date_str})")
             
