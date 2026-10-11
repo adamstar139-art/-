@@ -2,10 +2,9 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import date, datetime
-from fpdf import FPDF
 import io
 import os
-import re
+from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والهوية البصرية (Saudi Theme & RTL)
@@ -76,119 +75,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. محرك تشكيل وتحسين الخط العربي للـ PDF (Arabic Reshaper)
-# ---------------------------------------------------------
-ARABIC_MAP = {
-    'ا': ('\ufe8d', '\ufe8d', '\ufe8e', '\ufe8e'),
-    'أ': ('\ufe83', '\ufe83', '\ufe84', '\ufe84'),
-    'إ': ('\ufe87', '\ufe87', '\ufe88', '\ufe88'),
-    'آ': ('\ufe81', '\ufe81', '\ufe82', '\ufe82'),
-    'ب': ('\ufe8f', '\ufe91', '\ufe92', '\ufe90'),
-    'ت': ('\ufe93', '\ufe95', '\ufe96', '\ufe94'),
-    'ث': ('\ufe97', '\ufe99', '\ufe9a', '\ufe98'),
-    'ج': ('\ufe9d', '\ufe9f', '\ufea0', '\ufe9e'),
-    'ح': ('\ufea1', '\ufea3', '\ufea4', '\ufea2'),
-    'خ': ('\ufea5', '\ufea7', '\ufea8', '\ufea6'),
-    'د': ('\ufea9', '\ufea9', '\ufeaa', '\ufeaa'),
-    'ذ': ('\ufeab', '\ufeab', '\ufeac', '\ufeac'),
-    'ر': ('\ufead', '\ufead', '\ufeae', '\ufeae'),
-    'ز': ('\ufeaf', '\ufeaf', '\ufeb0', '\ufeb0'),
-    'س': ('\ufeb1', '\ufeb3', '\ufeb4', '\ufeb2'),
-    'ش': ('\ufeb5', '\ufeb7', '\ufeb8', '\ufeb6'),
-    'ص': ('\ufeb9', '\ufebb', '\ufebc', '\ufeba'),
-    'ض': ('\ufebd', '\ufebf', '\ufec0', '\ufebe'),
-    'ط': ('\ufec1', '\ufec3', '\ufec4', '\ufec2'),
-    'ظ': ('\ufec5', '\ufec7', '\ufec8', '\ufec6'),
-    'ع': ('\ufec9', '\ufecb', '\ufecc', '\ufeca'),
-    'غ': ('\ufecd', '\ufecf', '\ufed0', '\ufece'),
-    'ف': ('\ufed1', '\ufed3', '\ufed4', '\ufed2'),
-    'ق': ('\ufed5', '\ufed7', '\ufed8', '\ufed6'),
-    'ك': ('\ufed9', '\ufedb', '\ufedc', '\ufeda'),
-    'ل': ('\ufedd', '\ufedf', '\ufee0', '\ufede'),
-    'م': ('\ufee1', '\ufee3', '\ufee4', '\ufee2'),
-    'ن': ('\ufee5', '\ufee7', '\ufee8', '\ufee6'),
-    'ه': ('\ufee9', '\ufeeb', '\ufeec', '\ufeea'),
-    'و': ('\ufeed', '\ufeed', '\ufeee', '\ufeee'),
-    'ي': ('\ufeef', '\ufef3', '\ufef4', '\ufef0'),
-    'ى': ('\ufef1', '\ufef1', '\ufef2', '\ufef2'),
-    'ة': ('\ufe93', '\ufe93', '\ufe94', '\ufe94'),
-    'ء': ('\ufe80', '\ufe80', '\ufe80', '\ufe80'),
-    'ئ': ('\ufe89', '\ufe8b', '\ufe8c', '\ufe8a'),
-    'ؤ': ('\ufe85', '\ufe85', '\ufe86', '\ufe86'),
-}
-
-NON_CONNECTING = {'ا', 'أ', 'إ', 'آ', 'د', 'ذ', 'ر', 'ز', 'و', 'ؤ', 'ة', 'ى'}
-LAM_ALEF_MAP = {
-    ('ل', 'ا'): ('\ufefb', '\ufefc'),
-    ('ل', 'أ'): ('\ufef7', '\ufef8'),
-    ('ل', 'إ'): ('\ufef9', '\ufefa'),
-    ('ل', 'آ'): ('\ufef5', '\ufef6'),
-}
-
-def ar(text):
-    if not text:
-        return ""
-    text = str(text)
-    trans_table = str.maketrans("()[]{}", ")(}{][")
-    tokens = re.split(r'(\s+)', text)
-    processed_tokens = []
-    
-    for token in tokens:
-        if not token.strip():
-            processed_tokens.append(token)
-            continue
-        has_arabic = any(c in ARABIC_MAP for c in token)
-        if not has_arabic:
-            processed_tokens.append(token)
-            continue
-            
-        reshaped = []
-        n = len(token)
-        i = 0
-        while i < n:
-            if i < n - 1 and token[i] == 'ل' and token[i+1] in ('ا', 'أ', 'إ', 'آ'):
-                pair = (token[i], token[i+1])
-                prev_conn = (i > 0) and (token[i-1] in ARABIC_MAP) and (token[i-1] not in NON_CONNECTING)
-                iso, fin = LAM_ALEF_MAP[pair]
-                reshaped.append(fin if prev_conn else iso)
-                i += 2
-                continue
-                
-            c = token[i]
-            if c not in ARABIC_MAP:
-                reshaped.append(c.translate(trans_table))
-                i += 1
-                continue
-                
-            prev_conn = (i > 0) and (token[i-1] in ARABIC_MAP) and (token[i-1] not in NON_CONNECTING)
-            next_conn = (i < n - 1) and (token[i+1] in ARABIC_MAP)
-            iso, ini, med, fin = ARABIC_MAP[c]
-            
-            if prev_conn and next_conn and (c not in NON_CONNECTING):
-                reshaped.append(med)
-            elif prev_conn:
-                reshaped.append(fin)
-            elif next_conn and (c not in NON_CONNECTING):
-                reshaped.append(ini)
-            else:
-                reshaped.append(iso)
-            i += 1
-            
-        processed_tokens.append("".join(reshaped))
-        
-    full_str = "".join(processed_tokens)
-    words = full_str.split(' ')
-    reversed_words = []
-    for w in reversed(words):
-        if any(ord(c) > 127 for c in w):
-            reversed_words.append(w[::-1])
-        else:
-            reversed_words.append(w)
-            
-    return " ".join(reversed_words)
-
-# ---------------------------------------------------------
-# 3. إعدادات وقاعدة بيانات Supabase
+# 2. إعدادات وقاعدة بيانات Supabase
 # ---------------------------------------------------------
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -266,254 +153,122 @@ def delete_record(record_id):
         return False
 
 # ---------------------------------------------------------
-# 4. دالة إنشاء تقرير PDF آمن ومصمم برئاسة الهوية السعودية
+# 3. دالة إنشاء تقرير PDF عالي الجودة ومطابق لخط التقرير الشامل
 # ---------------------------------------------------------
-def get_arabic_font_path(style="naskh"):
-    if style == "kufi":
-        candidates = [
-            "NotoKufiArabic-Regular.ttf",
-            "fonts/NotoKufiArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoKufiArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
-        ]
-    elif style == "naskh":
-        candidates = [
-            "NotoNaskhArabic-Regular.ttf",
-            "fonts/NotoNaskhArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoKufiArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
-        ]
-    else:
-        candidates = [
-            "NotoSansArabic-Regular.ttf",
-            "fonts/NotoSansArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"
-        ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return None
-
-def get_arabic_bold_font_path(style="naskh"):
-    candidates = [
-        "NotoSansArabic-Bold.ttf",
-        "fonts/NotoSansArabic-Bold.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return None
-
-class SaudiPDF(FPDF):
-    def __init__(self, arabic_font_family="naskh"):
-        super().__init__()
-        self.arabic_font_family = arabic_font_family
-    def header(self):
-        font_b = get_arabic_bold_font_path(getattr(self, "arabic_font_family", "naskh"))
-        if font_b:
-            try:
-                self.add_font('ArabicBold', '', font_b)
-                self.set_font('ArabicBold', size=13)
-            except Exception:
-                self.set_font('Helvetica', 'B', 13)
-        else:
-            self.set_font('Helvetica', 'B', 13)
-            
-        l1 = ar("المملكة العربية السعودية - وزارة التعليم")
-        l2 = ar("إدارة التعليم بمحافظة الرياض")
-        l3 = ar("مدرسة متوسطة الثغر النموذجية الأهلية")
-        
-        self.cell(0, 7, l1, align='C', new_x='LMARGIN', new_y='NEXT')
-        self.cell(0, 6, l2, align='C', new_x='LMARGIN', new_y='NEXT')
-        self.cell(0, 7, l3, align='C', new_x='LMARGIN', new_y='NEXT')
-        
-        self.set_draw_color(0, 108, 53)
-        self.set_line_width(1.2)
-        self.line(10, 32, 200, 32)
-        self.ln(8)
-
-
-def generate_qr_image(url_text: str):
-    from PIL import Image, ImageDraw
-    data = url_text.encode('utf-8')
-    length = len(data)
-    size = 25 if length <= 30 else (29 if length <= 50 else 33)
-    border, box_size = 2, 4
-    matrix = [[0] * size for _ in range(size)]
-    reserved = [[False] * size for _ in range(size)]
-
-    def place_finder(r, c):
-        for dr in range(-1, 8):
-            for dc in range(-1, 8):
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < size and 0 <= nc < size:
-                    reserved[nr][nc] = True
-                    if 0 <= dr <= 6 and 0 <= dc <= 6:
-                        if dr in (0, 6) or dc in (0, 6) or (2 <= dr <= 4 and 2 <= dc <= 4):
-                            matrix[nr][nc] = 1
-                        else:
-                            matrix[nr][nc] = 0
-                    else:
-                        matrix[nr][nc] = 0
-
-    place_finder(0, 0)
-    place_finder(0, size - 7)
-    place_finder(size - 7, 0)
-
-    for i in range(size):
-        if not reserved[6][i]:
-            reserved[6][i] = True
-            matrix[6][i] = 1 if i % 2 == 0 else 0
-        if not reserved[i][6]:
-            reserved[i][6] = True
-            matrix[i][6] = 1 if i % 2 == 0 else 0
-
-    bits = []
-    for b in data:
-        for i in range(7, -1, -1):
-            bits.append((b >> i) & 1)
-
-    bit_idx = 0
-    for r in range(size):
-        for c in range(size):
-            if not reserved[r][c]:
-                if bit_idx < len(bits):
-                    matrix[r][c] = bits[bit_idx]
-                    bit_idx += 1
-                else:
-                    matrix[r][c] = (r + c) % 2
-
-    img_dim = (size + 2 * border) * box_size
-    img = Image.new('RGB', (img_dim, img_dim), 'white')
+def generate_perfect_pdf_report(df_records, selected_date, day_str, section_title=""):
+    W, H = 2480, 3508 # A4 at 300 DPI
+    img = Image.new('RGB', (W, H), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    for r in range(size):
-        for c in range(size):
-            if matrix[r][c] == 1:
-                x0 = (c + border) * box_size
-                y0 = (r + border) * box_size
-                draw.rectangle([x0, y0, x0 + box_size, y0 + box_size], fill='black')
-
-    return img
-
-def generate_pdf_report(df, selected_date, day_str, section_title="", arabic_font_family="naskh"):
-    pdf = SaudiPDF(arabic_font_family=arabic_font_family)
-    pdf.add_page()
-    font_p = get_arabic_font_path(arabic_font_family)
-    font_b = get_arabic_bold_font_path(arabic_font_family)
+    # البحث عن الخط الكوفي/النسخي المعتمد
+    kufi_bold = "/usr/share/fonts/truetype/noto/NotoKufiArabic-Bold.ttf"
+    kufi_reg = "/usr/share/fonts/truetype/noto/NotoKufiArabic-Regular.ttf"
     
-    
-    if font_b:
-        try:
-            pdf.add_font('ArabicBold', '', font_b)
-            pdf.set_font('ArabicBold', size=11)
-        except Exception:
-            pdf.set_font('Helvetica', 'B', 11)
-    else:
-        pdf.set_font('Helvetica', 'B', 11)
-        
-    main_title = ar(f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})")
+    if not os.path.exists(kufi_bold):
+        kufi_bold = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
+    if not os.path.exists(kufi_reg):
+        kufi_reg = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+
+    font_header_bold = ImageFont.truetype(kufi_bold, 52)
+    font_title_bold = ImageFont.truetype(kufi_bold, 44)
+    font_tbl_head = ImageFont.truetype(kufi_bold, 36)
+    font_tbl_body = ImageFont.truetype(kufi_reg, 34)
+    font_sub = ImageFont.truetype(kufi_reg, 38)
+    font_footer_b = ImageFont.truetype(kufi_bold, 34)
+    font_footer_r = ImageFont.truetype(kufi_reg, 32)
+
+    # شريط الهوية العلوية
+    draw.rectangle([0, 0, W, 45], fill=(0, 108, 53))
+    draw.rectangle([0, 45, W, 60], fill=(197, 160, 89))
+
+    # ترويسة التقرير
+    y = 140
+    draw.text((W // 2, y), "المملكة العربية السعودية - وزارة التعليم", fill=(0, 108, 53), font=font_header_bold, anchor="mm", direction="rtl")
+    y += 85
+    draw.text((W // 2, y), "إدارة التعليم بمحافظة الرياض", fill=(70, 70, 70), font=font_sub, anchor="mm", direction="rtl")
+    y += 75
+    draw.text((W // 2, y), "مدرسة متوسطة الثغر النموذجية الأهلية", fill=(0, 108, 53), font=font_header_bold, anchor="mm", direction="rtl")
+
+    y += 80
+    draw.line([120, y, W - 120, y], fill=(197, 160, 89), width=5)
+
+    # عنوان التقرير
+    y += 85
+    title_text = f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})"
     if section_title:
-        main_title = ar(f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date}) - ({section_title})")
-        
-    pdf.cell(0, 8, main_title, align='C', new_x='LMARGIN', new_y='NEXT')
-    pdf.ln(4)
+        title_text += f" - ({section_title})"
     
-    pdf.set_fill_color(0, 108, 53)
-    pdf.set_text_color(255, 255, 255)
-    
-    col_widths = [45, 30, 25, 25, 20, 45]
-    raw_headers = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الحصة']
-    headers = [ar(h) for h in raw_headers]
-    
-    for i, h in enumerate(headers):
-        pdf.cell(col_widths[i], 9, h, border=1, align='C', fill=True)
-    pdf.ln()
-    
-    if font_p:
-        try:
-            pdf.add_font('ArabicFont', '', font_p)
-            pdf.set_font('ArabicFont', size=10)
-        except Exception:
-            pdf.set_font('Helvetica', size=10)
-            
-    pdf.set_text_color(0, 0, 0)
-    
-    if df.empty:
-        pdf.cell(sum(col_widths), 10, ar("لا توجد حصص مسجلة لهذا اليوم / الفصل"), border=1, align='C')
-        pdf.ln()
+    draw.rounded_rectangle([150, y, W - 150, y + 110], radius=18, fill=(240, 248, 242), outline=(0, 108, 53), width=4)
+    draw.text((W // 2, y + 55), title_text, fill=(0, 108, 53), font=font_title_bold, anchor="mm", direction="rtl")
+
+    # إعداد جدول الحصص
+    y_table = y + 170
+    col_widths = [480, 320, 280, 260, 260, 520]
+    x_start = (W - sum(col_widths)) // 2
+
+    headers = ["المعلم", "المادة", "الصف", "الفصل", "الحصة", "رابط الحصة"]
+    row_height = 95
+
+    x_curr = x_start
+    for i, h_text in enumerate(headers):
+        w_col = col_widths[i]
+        draw.rectangle([x_curr, y_table, x_curr + w_col, y_table + row_height], fill=(0, 108, 53), outline=(0, 80, 40), width=2)
+        draw.text((x_curr + w_col // 2, y_table + row_height // 2), h_text, fill=(255, 255, 255), font=font_tbl_head, anchor="mm", direction="rtl")
+        x_curr += w_col
+
+    y_curr = y_table + row_height
+
+    if df_records.empty:
+        total_w = sum(col_widths)
+        draw.rectangle([x_start, y_curr, x_start + total_w, y_curr + 120], fill=(255, 255, 255), outline=(200, 200, 200), width=2)
+        draw.text((W // 2, y_curr + 60), "لا توجد حصص مسجلة لهذا اليوم / الفصل", fill=(100, 100, 100), font=font_tbl_body, anchor="mm", direction="rtl")
+        y_curr += 120
     else:
-        fill = False
-        for _, row in df.iterrows():
-            pdf.set_fill_color(242, 247, 242) if fill else pdf.set_fill_color(255, 255, 255)
-            
-            t_name = ar(str(row.get('teacher_name', '-')))
-            subj = ar(str(row.get('subject') or '-'))
-            grd = ar(str(row.get('grade', '-')))
-            sec = ar(str(row.get('section', '-')))
-            prd = ar(str(row.get('period', '-')))
-            
-            pdf.cell(col_widths[0], 8, t_name, border=1, align='C', fill=fill)
-            pdf.cell(col_widths[1], 8, subj, border=1, align='C', fill=fill)
-            pdf.cell(col_widths[2], 8, grd, border=1, align='C', fill=fill)
-            pdf.cell(col_widths[3], 8, sec, border=1, align='C', fill=fill)
-            pdf.cell(col_widths[4], 8, prd, border=1, align='C', fill=fill)
-            
-            pdf.set_text_color(0, 102, 204)
-            zoom_url = str(row.get('zoom_link', ''))
-            pdf.cell(col_widths[5], 8, ar("رابط الحصة"), border=1, align='C', fill=fill, link=zoom_url if zoom_url.startswith("http") else "")
-            pdf.set_text_color(0, 0, 0)
-            
-            pdf.ln()
-            fill = not fill
-            
-    pdf.ln(10)
-    
-    # ---------------------------------------------------------
-    # الاعتمادات والتوقيعات الرسمية في أسفل كل تقرير
-    # ---------------------------------------------------------
-    if font_b:
-        try:
-            pdf.set_font('ArabicBold', size=10)
-        except Exception:
-            pdf.set_font('Helvetica', 'B', 10)
-            
-    w_col = 63  # 63 * 3 = 189mm (توزيع متناسق لثلاثة أعمدة)
-    
-    s1_title = ar("وكيل الشؤون الطلاب")
-    s1_name = ar("صالح بن عبدالله الدعجاني")
-    
-    s2_title = ar("وكيل الشؤون التعليمية")
-    s2_name = ar("محمد مبروك السيد")
-    
-    s3_title = ar("مدير المدرسة")
-    s3_name = ar("إبراهيم بن موسى التميمي")
-    
-    # السطر الأول: وظائف وكلاء ومدير المدرسة
-    pdf.cell(w_col, 6, s1_title, align='C')
-    pdf.cell(w_col, 6, s2_title, align='C')
-    pdf.cell(w_col, 6, s3_title, align='C', new_x='LMARGIN', new_y='NEXT')
-    
-    # أسماء وكلاء ومدير المدرسة
-    pdf.cell(w_col, 6, s1_name, align='C')
-    pdf.cell(w_col, 6, s2_name, align='C')
-    pdf.cell(w_col, 6, s3_name, align='C', new_x='LMARGIN', new_y='NEXT')
-    
-    pdf.ln(5)
-    
-    # السطر التالي: المسؤول التقني والمنصة: محمد سامي السعيد
-    s4_text = ar("المسؤول التقني والمنصة: محمد سامي السعيد")
-    pdf.cell(0, 7, s4_text, align='C', new_x='LMARGIN', new_y='NEXT')
-    
-    return bytes(pdf.output())
+        for idx, row in df_records.iterrows():
+            bg_color = (245, 250, 246) if idx % 2 == 1 else (255, 255, 255)
+            vals = [
+                str(row.get('teacher_name', '-')),
+                str(row.get('subject') or '-'),
+                str(row.get('grade', '-')),
+                str(row.get('section', '-')),
+                str(row.get('period', '-')),
+                "رابط الحصة المباشر"
+            ]
+            x_curr = x_start
+            for i, val in enumerate(vals):
+                w_col = col_widths[i]
+                draw.rectangle([x_curr, y_curr, x_curr + w_col, y_curr + row_height], fill=bg_color, outline=(210, 220, 212), width=2)
+                text_color = (0, 102, 204) if i == 5 else (30, 30, 30)
+                draw.text((x_curr + w_col // 2, y_curr + row_height // 2), val, fill=text_color, font=font_tbl_body, anchor="mm", direction="rtl")
+                x_curr += w_col
+            y_curr += row_height
+
+    # قسم التوقيعات والاعتمادات الرسمية
+    y_footer = max(y_curr + 120, H - 550)
+    draw.line([120, y_footer - 40, W - 120, y_footer - 40], fill=(200, 200, 200), width=3)
+
+    w_sec = (W - 240) // 3
+    x1 = 120 + w_sec // 2
+    x2 = 120 + w_sec + w_sec // 2
+    x3 = 120 + 2 * w_sec + w_sec // 2
+
+    draw.text((x1, y_footer), "وكيل الشؤون الطلاب", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
+    draw.text((x2, y_footer), "وكيل الشؤون التعليمية", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
+    draw.text((x3, y_footer), "مدير المدرسة", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
+
+    draw.text((x1, y_footer + 65), "صالح بن عبدالله الدعجاني", fill=(40, 40, 40), font=font_footer_r, anchor="mm", direction="rtl")
+    draw.text((x2, y_footer + 65), "محمد مبروك السيد", fill=(40, 40, 40), font=font_footer_r, anchor="mm", direction="rtl")
+    draw.text((x3, y_footer + 65), "إبراهيم بن موسى التميمي", fill=(40, 40, 40), font=font_footer_r, anchor="mm", direction="rtl")
+
+    y_footer_2 = y_footer + 160
+    draw.text((W // 2, y_footer_2), "المسؤول التقني والمنصة: محمد سامي السعيد", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
+
+    pdf_bytes_io = io.BytesIO()
+    img.save(pdf_bytes_io, format='PDF', resolution=300.0)
+    return pdf_bytes_io.getvalue()
 
 # ---------------------------------------------------------
-# 5. الواجهة الرئيسية للبرنامج
+# 4. الواجهة الرئيسية والتنقل في التطبيق
 # ---------------------------------------------------------
 
 st.markdown("""
@@ -526,12 +281,25 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase (الرياض)")
+if SUPABASE_URL and SUPABASE_KEY:
+    st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
+else:
+    st.sidebar.warning("⚠️ يرجى إضافة مفاتيح Supabase في Secrets")
+
+# التحقق من حالة تسجيل الدخول للإدارة
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
 
 menu = st.sidebar.radio(
     "📌 القائمة الرئيسية",
     ["📝 تسجيل رابط حصة (المعلم)", "📊 التقرير اليومي ولوحة التحكم (الإدارة)", "⚙️ إدارة وتعديل السجلات"]
 )
+
+if st.session_state["authenticated"]:
+    st.sidebar.success("🔑 تم تسجيل الدخول كإداري")
+    if st.sidebar.button("🔒 تسجيل الخروج"):
+        st.session_state["authenticated"] = False
+        st.rerun()
 
 DAYS_LIST = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"]
 GRADES_LIST = ["الأول متوسط", "الثاني متوسط", "الثالث متوسط"]
@@ -561,9 +329,12 @@ TEACHERS_LIST = [
     "معلم آخر (أدخل الاسم)"
 ]
 
+# ---------------------------------------------------------
+# الصفحة 1: تسجيل رابط حصة (المعلم) - مفتوحة بدون كلمة مرور
+# ---------------------------------------------------------
 if menu == "📝 تسجيل رابط حصة (المعلم)":
     st.subheader("📝 نموذج إضافة رابط حصة افتراضية جديد")
-    st.info("💡 عند تغيير الصف الدراسي، ستتحدث قائمة الفصول المتاحة تلقائياً بلمسة واحدة.")
+    st.info("💡 اختر البيانات واضغط حفظ لإرسال الرابط مباشرة.")
     
     col1, col2 = st.columns(2)
     
@@ -608,121 +379,145 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
             else:
                 st.error(f"⚠️ {msg}")
 
-elif menu == "📊 التقرير اليومي ولوحة التحكم (الإدارة)":
-    st.subheader("📊 جدول ورصد روابط الحصص اليومية والطباعة والتصدير")
-    
-    col_f1, col_f2, col_f3 = st.columns(3)
-    with col_f1:
-        selected_date = st.date_input("اختر تاريخ التقرير:", value=date.today())
-    with col_f2:
-        selected_grade = st.selectbox("تصفية العرض حسب الصف:", ["الكل"] + GRADES_LIST)
-    with col_f3:
-        selected_section_filter = st.selectbox("تصفية العرض حسب الفصل:", ["الكل"] + ALL_SECTIONS)
+# ---------------------------------------------------------
+# الصفحات المحمية بكلمة مرور (666666): التقرير والإدارة
+# ---------------------------------------------------------
+else:
+    if not st.session_state["authenticated"]:
+        st.subheader("🔒 منطقة محمية (خاصة بالإدارة والكنترول)")
+        st.info("يرجى إدخال كلمة المرور للوصول إلى التقرير اليومي ولوحة تحكم النظام.")
         
-    date_str = selected_date.strftime("%Y-%m-%d")
-    df = fetch_records(
-        filter_date=date_str, 
-        filter_grade=selected_grade,
-        filter_section=selected_section_filter
-    )
-    
-    day_name_str = DAYS_LIST[selected_date.weekday() % 5] if selected_date.weekday() < 5 else "اليوم"
-    
-    st.markdown(f"### 📋 حصص يوم {day_name_str} الموافق ({date_str})")
-    
-    if df.empty:
-        st.warning("ℹ️ لا توجد روابط حصص مسجلة لهذا التاريخ أو المصفى المختار.")
+        col_p1, col_p2 = st.columns([3, 1])
+        with col_p1:
+            pwd_input = st.text_input("كلمة المرور:", type="password", key="admin_password_field")
+        with col_p2:
+            st.write("")
+            st.write("")
+            btn_login = st.button("🔓 دخول للإدارة")
+            
+        if btn_login or pwd_input:
+            if pwd_input == "666666":
+                st.session_state["authenticated"] = True
+                st.success("✅ تم تسجيل الدخول بنجاح!")
+                st.rerun()
+            elif pwd_input:
+                st.error("❌ كلمة المرور غير صحيحة!")
     else:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("إجمالي الحصص المسجلة", len(df))
-        c2.metric("عدد المعلمين المشاركين", df['teacher_name'].nunique() if 'teacher_name' in df.columns else 0)
-        c3.metric("الصفوف المكتملة", df['grade'].nunique() if 'grade' in df.columns else 0)
-        
-        st.divider()
-        
-        cols_to_show = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period', 'zoom_link'] if c in df.columns]
-        display_df = df[cols_to_show].copy()
-        display_df.columns = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الزوم'][:len(cols_to_show)]
-        
-        st.dataframe(display_df, use_container_width=True)
-        
-        st.divider()
-        
-        st.markdown("### 🖨️ خيارات الطباعة والتصدير (PDF / Excel)")
-        
-        tab1, tab2, tab3 = st.tabs(["📄 طباعة التقرير العام الشامل", "🎯 طباعة تقرير فصل منفصل (PDF)", "📊 تصدير Excel"])
-        
-        with tab1:
-            st.write("طباعة تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم:")
-            pdf_bytes_all = generate_pdf_report(df, date_str, day_name_str, section_title="جميع الفصول")
-            st.download_button(
-                label="🖨️ تحميل التقرير الشامل لجميع الفصول (PDF)",
-                data=pdf_bytes_all,
-                file_name=f"تقرير_جميع_الفصول_{date_str}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+        if menu == "📊 التقرير اليومي ولوحة التحكم (الإدارة)":
+            st.subheader("📊 جدول ورصد روابط الحصص اليومية والطباعة والتصدير")
             
-        with tab2:
-            st.write("اختر فصلاً محداً لطباعة تقرير منفصل به فقط:")
-            target_sec = st.selectbox("اختر الفصل المراد طباعته:", ALL_SECTIONS, key="print_single_section")
-            
-            if 'section' in df.columns:
-                df_sec = df[df['section'] == target_sec]
-            else:
-                df_sec = pd.DataFrame()
+            col_f1, col_f2, col_f3 = st.columns(3)
+            with col_f1:
+                selected_date = st.date_input("اختر تاريخ التقرير:", value=date.today())
+            with col_f2:
+                selected_grade = st.selectbox("تصفية العرض حسب الصف:", ["الكل"] + GRADES_LIST)
+            with col_f3:
+                selected_section_filter = st.selectbox("تصفية العرض حسب الفصل:", ["الكل"] + ALL_SECTIONS)
                 
-            if df_sec.empty:
-                st.info(f"لا توجد حصص مسجلة لفصل ({target_sec}) في تاريخ {date_str}.")
+            date_str = selected_date.strftime("%Y-%m-%d")
+            df = fetch_records(
+                filter_date=date_str, 
+                filter_grade=selected_grade,
+                filter_section=selected_section_filter
+            )
+            
+            day_name_str = DAYS_LIST[selected_date.weekday() % 5] if selected_date.weekday() < 5 else "اليوم"
+            
+            st.markdown(f"### 📋 حصص يوم {day_name_str} الموافق ({date_str})")
+            
+            if df.empty:
+                st.warning("ℹ️ لا توجد روابط حصص مسجلة لهذا التاريخ أو المصفى المختار.")
             else:
-                st.success(f"تم العثور على {len(df_sec)} حصة مسجلة لفصل ({target_sec}).")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("إجمالي الحصص المسجلة", len(df))
+                c2.metric("عدد المعلمين المشاركين", df['teacher_name'].nunique() if 'teacher_name' in df.columns else 0)
+                c3.metric("الصفوف المكتملة", df['grade'].nunique() if 'grade' in df.columns else 0)
                 
-            pdf_bytes_sec = generate_pdf_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
-            st.download_button(
-                label=f"📄 تحميل تقرير (فصل {target_sec}) منفصل (PDF)",
-                data=pdf_bytes_sec,
-                file_name=f"تقرير_فصل_{target_sec}_{date_str}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-            
-        with tab3:
-            st.write("تصدير الجدول إلى ملف Excel للتعديل أو الأرشفة:")
-            excel_buffer = io.BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                display_df.to_excel(writer, index=False, sheet_name="الحصص")
-            excel_bytes = excel_buffer.getvalue()
-            
-            st.download_button(
-                label="📊 تصدير البيانات إلى ملف Excel (.xlsx)",
-                data=excel_bytes,
-                file_name=f"جدول_الحصص_{date_str}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-
-elif menu == "⚙️ إدارة وتعديل السجلات":
-    st.subheader("⚙️ إدارة وتعديل روابط الحصص المسجلة")
-    
-    selected_date_mgt = st.date_input("اختر تاريخ اليوم للتحكم بالسجلات:", value=date.today())
-    date_str_mgt = selected_date_mgt.strftime("%Y-%m-%d")
-    
-    df_mgt = fetch_records(filter_date=date_str_mgt)
-    
-    if df_mgt.empty:
-        st.info("لا توجد سجلات متاحة للتعديل أو الحذف في هذا التاريخ.")
-    else:
-        st.write("اختر السجل الذي ترغب في حذفه أو تعديله:")
-        for idx, row in df_mgt.iterrows():
-            with st.expander(f"📌 {row.get('teacher_name', 'معلم')} | {row.get('grade', '-')} - {row.get('section', '-')} | {row.get('period', '-')}"):
-                st.write(f"**المادة:** {row.get('subject') or 'غير محددة'}")
-                st.write(f"**الرابط:** [{row.get('zoom_link')}]({row.get('zoom_link')})")
-                if st.button(f"❌ حذف هذا السجل (رقم {row.get('id')})", key=f"del_{row.get('id')}"):
-                    if delete_record(row.get('id')):
-                        st.success("تم حذف السجل بنجاح من Supabase!")
-                        st.rerun()
+                st.divider()
+                
+                cols_to_show = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period', 'zoom_link'] if c in df.columns]
+                display_df = df[cols_to_show].copy()
+                display_df.columns = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الزوم'][:len(cols_to_show)]
+                
+                st.dataframe(display_df, use_container_width=True)
+                
+                st.divider()
+                
+                st.markdown("### 🖨️ خيارات الطباعة والتصدير عالية الجودة (PDF / Excel)")
+                
+                tab1, tab2, tab3 = st.tabs(["📄 طباعة التقرير العام الشامل", "🎯 طباعة تقرير فصل منفصل (PDF)", "📊 تصدير Excel"])
+                
+                with tab1:
+                    st.write("طباعة تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم بنفس خط التقرير الشامل:")
+                    pdf_bytes_all = generate_perfect_pdf_report(df, date_str, day_name_str, section_title="جميع الفصول")
+                    st.download_button(
+                        label="🖨️ تحميل التقرير الشامل لجميع الفصول (PDF)",
+                        data=pdf_bytes_all,
+                        file_name=f"تقرير_جميع_الفصول_{date_str}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                    
+                with tab2:
+                    st.write("اختر فصلاً محدداً لطباعة تقرير منفصل به فقط:")
+                    target_sec = st.selectbox("اختر الفصل المراد طباعته:", ALL_SECTIONS, key="print_single_section")
+                    
+                    if 'section' in df.columns:
+                        df_sec = df[df['section'] == target_sec]
                     else:
-                        st.error("تعذر حذف السجل من Supabase.")
+                        df_sec = pd.DataFrame()
+                        
+                    if df_sec.empty:
+                        st.info(f"لا توجد حصص مسجلة لفصل ({target_sec}) في تاريخ {date_str}.")
+                    else:
+                        st.success(f"تم العثور على {len(df_sec)} حصة مسجلة لفصل ({target_sec}).")
+                        
+                    pdf_bytes_sec = generate_perfect_pdf_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
+                    st.download_button(
+                        label=f"📄 تحميل تقرير (فصل {target_sec}) منفصل (PDF)",
+                        data=pdf_bytes_sec,
+                        file_name=f"تقرير_فصل_{target_sec}_{date_str}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                    
+                with tab3:
+                    st.write("تصدير الجدول إلى ملف Excel للتعديل أو الأرشفة:")
+                    excel_buffer = io.BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        display_df.to_excel(writer, index=False, sheet_name="الحصص")
+                    excel_bytes = excel_buffer.getvalue()
+                    
+                    st.download_button(
+                        label="📊 تصدير البيانات إلى ملف Excel (.xlsx)",
+                        data=excel_bytes,
+                        file_name=f"جدول_الحصص_{date_str}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+        elif menu == "⚙️ إدارة وتعديل السجلات":
+            st.subheader("⚙️ إدارة وتعديل روابط الحصص المسجلة")
+            
+            selected_date_mgt = st.date_input("اختر تاريخ اليوم للتحكم بالسجلات:", value=date.today())
+            date_str_mgt = selected_date_mgt.strftime("%Y-%m-%d")
+            
+            df_mgt = fetch_records(filter_date=date_str_mgt)
+            
+            if df_mgt.empty:
+                st.info("لا توجد سجلات متاحة للتعديل أو الحذف في هذا التاريخ.")
+            else:
+                st.write("اختر السجل الذي ترغب في حذفه أو تعديله:")
+                for idx, row in df_mgt.iterrows():
+                    with st.expander(f"📌 {row.get('teacher_name', 'معلم')} | {row.get('grade', '-')} - {row.get('section', '-')} | {row.get('period', '-')}"):
+                        st.write(f"**المادة:** {row.get('subject') or 'غير محددة'}")
+                        st.write(f"**الرابط:** [{row.get('zoom_link')}]({row.get('zoom_link')})")
+                        if st.button(f"❌ حذف هذا السجل (رقم {row.get('id')})", key=f"del_{row.get('id')}"):
+                            if delete_record(row.get('id')):
+                                st.success("تم حذف السجل بنجاح من Supabase!")
+                                st.rerun()
+                            else:
+                                st.error("تعذر حذف السجل من Supabase.")
 
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: #777; font-size: 13px;'>تطوير نظام إدارة التعليم | متوسطة الثغر النموذجية الأهلية - بالرياض © 1448 هـ</p>", unsafe_allow_html=True)
