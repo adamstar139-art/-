@@ -9,6 +9,7 @@ import os
 import re
 import base64
 import tempfile
+import html as _html
 
 # شعار المدرسة مضمّن Base64 (مع احتياطي حتى لا ينكسر مهما كان موقع التشغيل)
 try:
@@ -531,6 +532,130 @@ def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
 
     return bytes(pdf.output())
 
+
+def generate_html_report(df, selected_date, day_str, section_title=""):
+    """ينشئ تقرير HTML مستقل بالكامل (RTL) مع الشعار المضمّن وتنسيق احترافي قابل للطباعة."""
+    logo_uri = ("data:image/png;base64," + _LOGO_B64) if _LOGO_B64 else ""
+    logo_tag = (f'<img class="logo" src="{logo_uri}" alt="شعار المدرسة">' if logo_uri else "")
+
+    n_lessons = 0 if df is None or df.empty else len(df)
+    n_teachers = 0 if df is None or df.empty or 'teacher_name' not in df.columns else int(df['teacher_name'].nunique())
+    n_grades = 0 if df is None or df.empty or 'grade' not in df.columns else int(df['grade'].nunique())
+
+    # بناء صفوف الجدول (مع تأمين النص ضد أي محتوى خطير)
+    rows_html = ""
+    if df is None or df.empty:
+        rows_html = ('<tr><td colspan="6" class="empty">لا توجد حصص مسجلة لهذا اليوم / الفصل</td></tr>')
+    else:
+        for _, row in df.iterrows():
+            zoom_url = str(row.get('zoom_link', '') or '')
+            if zoom_url.startswith("http"):
+                safe_url = _html.escape(zoom_url, quote=True)
+                link_cell = f'<a class="zoom" href="{safe_url}" target="_blank" rel="noopener noreferrer">فتح الرابط</a>'
+            else:
+                link_cell = '<span class="nolink">—</span>'
+            teacher = _html.escape(str(row.get('teacher_name', '-')))
+            subject = _html.escape(str(row.get('subject') or '-'))
+            grade = _html.escape(str(row.get('grade', '-')))
+            section = _html.escape(str(row.get('section', '-')))
+            period = _html.escape(str(row.get('period', '-')))
+            rows_html += (
+                "<tr>"
+                f"<td class='c-link'>{link_cell}</td>"
+                f"<td>{period}</td>"
+                f"<td>{section}</td>"
+                f"<td>{grade}</td>"
+                f"<td>{subject}</td>"
+                f"<td class='c-teacher'>{teacher}</td>"
+                "</tr>"
+            )
+
+    sec_bar = (f'<div class="subbar">{_html.escape(section_title)}</div>' if section_title else "")
+    gen_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    title_txt = _html.escape(f"تقرير روابط حصص الزوم اليومية — يوم {day_str} ({selected_date})")
+
+    html_doc = f"""<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title_txt}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+  * {{ box-sizing: border-box; }}
+  body {{ font-family:'Cairo',sans-serif; direction:rtl; text-align:right; background:#eef1ee; color:#222; margin:0; padding:24px; }}
+  .sheet {{ max-width:1000px; margin:0 auto; background:#fff; padding:28px 34px 40px; border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,.12); border-top:6px solid #006C35; }}
+  .topbar {{ height:6px; background:linear-gradient(90deg,#006C35,#C5A059); border-radius:4px; margin-bottom:16px; }}
+  .head {{ display:flex; align-items:center; gap:18px; border-bottom:2px solid #C5A059; padding-bottom:14px; margin-bottom:4px; }}
+  .head .logo {{ height:90px; width:auto; filter:drop-shadow(0 2px 4px rgba(0,0,0,.2)); }}
+  .head .titles {{ flex:1; text-align:center; }}
+  .head h1 {{ color:#006C35; font-size:20px; font-weight:800; margin:0; }}
+  .head h2 {{ color:#555; font-size:14px; font-weight:600; margin:4px 0 0; }}
+  .head h3 {{ color:#004D25; font-size:16px; font-weight:700; margin:4px 0 0; }}
+  .rpt-title {{ background:#006C35; color:#fff; text-align:center; font-weight:700; font-size:16px; padding:11px; border-radius:6px; margin-top:18px; }}
+  .subbar {{ background:#C5A059; color:#fff; text-align:center; font-weight:700; font-size:13px; padding:7px; border-radius:5px; margin-top:6px; }}
+  .summary {{ display:flex; justify-content:center; gap:28px; flex-wrap:wrap; background:#f0f8f2; border:1px solid #C5A059; border-radius:6px; padding:12px; margin:16px 0; color:#004D25; font-weight:700; font-size:14px; }}
+  .summary span b {{ color:#006C35; }}
+  table {{ width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }}
+  thead th {{ background:#006C35; color:#fff; padding:11px 8px; border:1px solid #004D25; font-weight:700; }}
+  tbody td {{ padding:9px 8px; border:1px solid #d6dcd6; text-align:center; }}
+  tbody tr:nth-child(even) {{ background:#f4f9f5; }}
+  .c-teacher {{ font-weight:600; }}
+  a.zoom {{ display:inline-block; background:#006C35; color:#fff; text-decoration:none; padding:5px 14px; border-radius:5px; font-weight:700; font-size:13px; }}
+  a.zoom:hover {{ background:#004D25; }}
+  .nolink {{ color:#aaa; }}
+  td.empty {{ text-align:center; color:#9a3c3c; background:#fcf5f5; padding:16px; font-weight:700; }}
+  .signs {{ display:flex; justify-content:space-between; margin-top:46px; gap:16px; }}
+  .signs .box {{ flex:1; text-align:center; }}
+  .signs .role {{ font-weight:700; color:#004D25; font-size:14px; }}
+  .signs .line {{ border-top:1px dashed #999; margin:34px 16px 6px; }}
+  .signs .name {{ color:#555; font-size:13px; }}
+  .tech {{ text-align:center; margin-top:26px; color:#C5A059; font-weight:700; font-size:13px; }}
+  .foot {{ margin-top:24px; border-top:1px solid #C5A059; padding-top:8px; text-align:center; color:#999; font-size:12px; }}
+  @media print {{ body {{ background:#fff; padding:0; }} .sheet {{ box-shadow:none; border-radius:0; max-width:100%; }} a.zoom {{ color:#006C35; background:none; padding:0; }} }}
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="topbar"></div>
+    <div class="head">
+      {logo_tag}
+      <div class="titles">
+        <h1>المملكة العربية السعودية - وزارة التعليم</h1>
+        <h2>إدارة التعليم بمحافظة الرياض</h2>
+        <h3>مدرسة متوسطة الثغر النموذجية الأهلية</h3>
+      </div>
+    </div>
+    <div class="rpt-title">{title_txt}</div>
+    {sec_bar}
+    <div class="summary">
+      <span>إجمالي الحصص: <b>{n_lessons}</b></span>
+      <span>عدد المعلمين: <b>{n_teachers}</b></span>
+      <span>الصفوف: <b>{n_grades}</b></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>رابط الحصة</th><th>الحصة</th><th>الفصل</th>
+          <th>الصف</th><th>المادة</th><th>المعلم</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows_html}
+      </tbody>
+    </table>
+    <div class="signs">
+      <div class="box"><div class="role">وكيل شؤون الطلاب</div><div class="line"></div><div class="name">صالح بن عبدالله الدعجاني</div></div>
+      <div class="box"><div class="role">وكيل الشؤون التعليمية</div><div class="line"></div><div class="name">محمد مبروك السيد</div></div>
+      <div class="box"><div class="role">مدير المدرسة</div><div class="line"></div><div class="name">إبراهيم بن موسى التميمي</div></div>
+    </div>
+    <div class="tech">المسؤول التقني والمنصة: محمد سامي السعيد</div>
+    <div class="foot">متوسطة الثغر النموذجية الأهلية — الرياض &nbsp;|&nbsp; تاريخ الإصدار: {gen_time}</div>
+  </div>
+</body>
+</html>"""
+    return html_doc.encode("utf-8")
+
 # ---------------------------------------------------------
 # 5. الواجهة الرئيسية والتنقل بين الصفحات
 # ---------------------------------------------------------
@@ -701,20 +826,35 @@ else:
                 
                 st.divider()
                 
-                st.markdown("### 🖨️ خيارات الطباعة والتصدير (PDF / Excel)")
+                st.markdown("### 🖨️ خيارات الطباعة والتصدير (PDF / HTML / Excel)")
                 
-                tab1, tab2, tab3 = st.tabs(["📄 طباعة التقرير العام الشامل", "🎯 طباعة تقرير فصل منفصل (PDF)", "📊 تصدير Excel"])
+                tab1, tab2, tab3 = st.tabs(["📄 التقرير العام الشامل", "🎯 تقرير فصل منفصل", "📊 تصدير Excel"])
                 
                 with tab1:
-                    st.write("طباعة تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم:")
-                    pdf_bytes_all = generate_perfect_pdf_report(df, date_str, day_name_str, section_title="جميع الفصول")
-                    st.download_button(
-                        label="🖨️ تحميل التقرير الشامل لجميع الفصول (PDF)",
-                        data=pdf_bytes_all,
-                        file_name=f"تقرير_جميع_الفصول_{date_str}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
+                    st.write("تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم — اختر صيغة التصدير:")
+                    fmt_all = st.radio(
+                        "صيغة الملف:", ["PDF", "HTML"],
+                        horizontal=True, key="fmt_all"
                     )
+                    if fmt_all == "PDF":
+                        pdf_bytes_all = generate_perfect_pdf_report(df, date_str, day_name_str, section_title="جميع الفصول")
+                        st.download_button(
+                            label="🖨️ تحميل التقرير الشامل (PDF)",
+                            data=pdf_bytes_all,
+                            file_name=f"تقرير_جميع_الفصول_{date_str}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    else:
+                        html_bytes_all = generate_html_report(df, date_str, day_name_str, section_title="جميع الفصول")
+                        st.download_button(
+                            label="🌐 تحميل التقرير الشامل (HTML)",
+                            data=html_bytes_all,
+                            file_name=f"تقرير_جميع_الفصول_{date_str}.html",
+                            mime="text/html",
+                            use_container_width=True
+                        )
+                        st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
                     
                 with tab2:
                     st.write("اختر فصلاً محداً لطباعة تقرير منفصل به فقط:")
@@ -729,15 +869,30 @@ else:
                         st.info(f"لا توجد حصص مسجلة لفصل ({target_sec}) في تاريخ {date_str}.")
                     else:
                         st.success(f"تم العثور على {len(df_sec)} حصة مسجلة لفصل ({target_sec}).")
-                        
-                    pdf_bytes_sec = generate_perfect_pdf_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
-                    st.download_button(
-                        label=f"📄 تحميل تقرير (فصل {target_sec}) منفصل (PDF)",
-                        data=pdf_bytes_sec,
-                        file_name=f"تقرير_فصل_{target_sec}_{date_str}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
+                    
+                    fmt_sec = st.radio(
+                        "صيغة الملف:", ["PDF", "HTML"],
+                        horizontal=True, key="fmt_sec"
                     )
+                    if fmt_sec == "PDF":
+                        pdf_bytes_sec = generate_perfect_pdf_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
+                        st.download_button(
+                            label=f"📄 تحميل تقرير (فصل {target_sec}) منفصل (PDF)",
+                            data=pdf_bytes_sec,
+                            file_name=f"تقرير_فصل_{target_sec}_{date_str}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    else:
+                        html_bytes_sec = generate_html_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
+                        st.download_button(
+                            label=f"🌐 تحميل تقرير (فصل {target_sec}) منفصل (HTML)",
+                            data=html_bytes_sec,
+                            file_name=f"تقرير_فصل_{target_sec}_{date_str}.html",
+                            mime="text/html",
+                            use_container_width=True
+                        )
+                        st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
                     
                 with tab3:
                     st.write("تصدير الجدول إلى ملف Excel للتعديل أو الأرشفة:")
