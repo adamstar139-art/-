@@ -172,7 +172,16 @@ LAM_ALEF_MAP = {
     ('ل', 'آ'): ('ﻵ', 'ﻶ'),
 }
 
+def fix_naskh(text):
+    if not text:
+        return ""
+    text = str(text)
+    text = text.replace('-', '\u2010')
+    text = text.replace('(', '\ufd3e').replace(')', '\ufd3f')
+    return text
+
 def ar(text):
+    text = fix_naskh(text)
     if not text: return ""
     text = str(text)
     trans_table = str.maketrans("()[]{}", ")(}{][")
@@ -317,8 +326,8 @@ def delete_record(record_id):
 
 class ThagharFPDF(FPDF):
     def header(self):
-        font_b = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        font_r = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        font_b = "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf"
+        font_r = "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"
         
         if not os.path.exists(font_b):
             font_b = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
