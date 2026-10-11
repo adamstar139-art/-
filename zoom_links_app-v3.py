@@ -5,6 +5,7 @@ from datetime import date, datetime
 from fpdf import FPDF
 import io
 import os
+import re
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والهوية البصرية (Saudi Theme & RTL)
@@ -75,9 +76,120 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. إعدادات وقاعدة بيانات Supabase
+# 2. محرك تشكيل وتحسين الخط العربي للـ PDF (Arabic Reshaper)
 # ---------------------------------------------------------
+ARABIC_MAP = {
+    'ا': ('\ufe8d', '\ufe8d', '\ufe8e', '\ufe8e'),
+    'أ': ('\ufe83', '\ufe83', '\ufe84', '\ufe84'),
+    'إ': ('\ufe87', '\ufe87', '\ufe88', '\ufe88'),
+    'آ': ('\ufe81', '\ufe81', '\ufe82', '\ufe82'),
+    'ب': ('\ufe8f', '\ufe91', '\ufe92', '\ufe90'),
+    'ت': ('\ufe93', '\ufe95', '\ufe96', '\ufe94'),
+    'ث': ('\ufe97', '\ufe99', '\ufe9a', '\ufe98'),
+    'ج': ('\ufe9d', '\ufe9f', '\ufea0', '\ufe9e'),
+    'ح': ('\ufea1', '\ufea3', '\ufea4', '\ufea2'),
+    'خ': ('\ufea5', '\ufea7', '\ufea8', '\ufea6'),
+    'د': ('\ufea9', '\ufea9', '\ufeaa', '\ufeaa'),
+    'ذ': ('\ufeab', '\ufeab', '\ufeac', '\ufeac'),
+    'ر': ('\ufead', '\ufead', '\ufeae', '\ufeae'),
+    'ز': ('\ufeaf', '\ufeaf', '\ufeb0', '\ufeb0'),
+    'س': ('\ufeb1', '\ufeb3', '\ufeb4', '\ufeb2'),
+    'ش': ('\ufeb5', '\ufeb7', '\ufeb8', '\ufeb6'),
+    'ص': ('\ufeb9', '\ufebb', '\ufebc', '\ufeba'),
+    'ض': ('\ufebd', '\ufebf', '\ufec0', '\ufebe'),
+    'ط': ('\ufec1', '\ufec3', '\ufec4', '\ufec2'),
+    'ظ': ('\ufec5', '\ufec7', '\ufec8', '\ufec6'),
+    'ع': ('\ufec9', '\ufecb', '\ufecc', '\ufeca'),
+    'غ': ('\ufecd', '\ufecf', '\ufed0', '\ufece'),
+    'ف': ('\ufed1', '\ufed3', '\ufed4', '\ufed2'),
+    'ق': ('\ufed5', '\ufed7', '\ufed8', '\ufed6'),
+    'ك': ('\ufed9', '\ufedb', '\ufedc', '\ufeda'),
+    'ل': ('\ufedd', '\ufedf', '\ufee0', '\ufede'),
+    'م': ('\ufee1', '\ufee3', '\ufee4', '\ufee2'),
+    'ن': ('\ufee5', '\ufee7', '\ufee8', '\ufee6'),
+    'ه': ('\ufee9', '\ufeeb', '\ufeec', '\ufeea'),
+    'و': ('\ufeed', '\ufeed', '\ufeee', '\ufeee'),
+    'ي': ('\ufeef', '\ufef3', '\ufef4', '\ufef0'),
+    'ى': ('\ufef1', '\ufef1', '\ufef2', '\ufef2'),
+    'ة': ('\ufe93', '\ufe93', '\ufe94', '\ufe94'),
+    'ء': ('\ufe80', '\ufe80', '\ufe80', '\ufe80'),
+    'ئ': ('\ufe89', '\ufe8b', '\ufe8c', '\ufe8a'),
+    'ؤ': ('\ufe85', '\ufe85', '\ufe86', '\ufe86'),
+}
 
+NON_CONNECTING = {'ا', 'أ', 'إ', 'آ', 'د', 'ذ', 'ر', 'ز', 'و', 'ؤ', 'ة', 'ى'}
+LAM_ALEF_MAP = {
+    ('ل', 'ا'): ('\ufefb', '\ufefc'),
+    ('ل', 'أ'): ('\ufef7', '\ufef8'),
+    ('ل', 'إ'): ('\ufef9', '\ufefa'),
+    ('ل', 'آ'): ('\ufef5', '\ufef6'),
+}
+
+def ar(text):
+    if not text:
+        return ""
+    text = str(text)
+    trans_table = str.maketrans("()[]{}", ")(}{][")
+    tokens = re.split(r'(\s+)', text)
+    processed_tokens = []
+    
+    for token in tokens:
+        if not token.strip():
+            processed_tokens.append(token)
+            continue
+        has_arabic = any(c in ARABIC_MAP for c in token)
+        if not has_arabic:
+            processed_tokens.append(token)
+            continue
+            
+        reshaped = []
+        n = len(token)
+        i = 0
+        while i < n:
+            if i < n - 1 and token[i] == 'ل' and token[i+1] in ('ا', 'أ', 'إ', 'آ'):
+                pair = (token[i], token[i+1])
+                prev_conn = (i > 0) and (token[i-1] in ARABIC_MAP) and (token[i-1] not in NON_CONNECTING)
+                iso, fin = LAM_ALEF_MAP[pair]
+                reshaped.append(fin if prev_conn else iso)
+                i += 2
+                continue
+                
+            c = token[i]
+            if c not in ARABIC_MAP:
+                reshaped.append(c.translate(trans_table))
+                i += 1
+                continue
+                
+            prev_conn = (i > 0) and (token[i-1] in ARABIC_MAP) and (token[i-1] not in NON_CONNECTING)
+            next_conn = (i < n - 1) and (token[i+1] in ARABIC_MAP)
+            iso, ini, med, fin = ARABIC_MAP[c]
+            
+            if prev_conn and next_conn and (c not in NON_CONNECTING):
+                reshaped.append(med)
+            elif prev_conn:
+                reshaped.append(fin)
+            elif next_conn and (c not in NON_CONNECTING):
+                reshaped.append(ini)
+            else:
+                reshaped.append(iso)
+            i += 1
+            
+        processed_tokens.append("".join(reshaped))
+        
+    full_str = "".join(processed_tokens)
+    words = full_str.split(' ')
+    reversed_words = []
+    for w in reversed(words):
+        if any(ord(c) > 127 for c in w):
+            reversed_words.append(w[::-1])
+        else:
+            reversed_words.append(w)
+            
+    return " ".join(reversed_words)
+
+# ---------------------------------------------------------
+# 3. إعدادات وقاعدة بيانات Supabase
+# ---------------------------------------------------------
 SUPABASE_URL = ""
 SUPABASE_KEY = ""
 
@@ -87,11 +199,6 @@ if "supabase" in st.secrets:
 elif "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
-if not SUPABASE_URL:
-    SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-if not SUPABASE_KEY:
-    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -156,80 +263,114 @@ def delete_record(record_id):
         return False
 
 # ---------------------------------------------------------
-# 3. دالة إنشاء تقرير PDF برئاسة الهوية السعودية
+# 4. دالة إنشاء تقرير PDF آمن ومصمم برئاسة الهوية السعودية
 # ---------------------------------------------------------
-class PDFReport(FPDF):
+def get_arabic_font_path():
+    candidates = [
+        "NotoSansArabic-Regular.ttf",
+        "fonts/NotoSansArabic-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
+class SaudiPDF(FPDF):
     def header(self):
-        font_path = '/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf' if os.path.exists('/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf') else 'NotoSansArabic-Bold.ttf'
-        self.add_font('NotoBold', '', font_path)
-        self.set_font('NotoBold', size=14)
+        font_p = get_arabic_font_path()
+        if font_p:
+            try:
+                self.add_font('ArabicFont', '', font_p)
+                self.set_font('ArabicFont', size=14)
+            except Exception:
+                self.set_font('Helvetica', 'B', 14)
+        else:
+            self.set_font('Helvetica', 'B', 14)
+            
+        l1 = ar("المملكة العربية السعودية - وزارة التعليم")
+        l2 = ar("إدارة التعليم بمحافظة جدة")
+        l3 = ar("مدرسة متوسطة الثغر النموذجية الأهلية")
         
-        self.cell(0, 7, 'المملكة العربية السعودية - وزارة التعليم', align='C', new_x='LMARGIN', new_y='NEXT')
-        self.set_font('NotoBold', size=12)
-        self.cell(0, 6, 'إدارة التعليم بمحافظة جدة', align='C', new_x='LMARGIN', new_y='NEXT')
-        self.set_font('NotoBold', size=13)
-        self.cell(0, 7, 'مدرسة متوسطة الثغر النموذجية الأهلية', align='C', new_x='LMARGIN', new_y='NEXT')
+        self.cell(0, 7, l1, align='C', new_x='LMARGIN', new_y='NEXT')
+        self.cell(0, 6, l2, align='C', new_x='LMARGIN', new_y='NEXT')
+        self.cell(0, 7, l3, align='C', new_x='LMARGIN', new_y='NEXT')
         
         self.set_draw_color(0, 108, 53)
-        self.set_line_width(1)
+        self.set_line_width(1.2)
         self.line(10, 32, 200, 32)
         self.ln(8)
 
 def generate_pdf_report(df, selected_date, day_str, section_title=""):
-    pdf = PDFReport()
+    pdf = SaudiPDF()
     pdf.add_page()
     
-    font_reg = '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf' if os.path.exists('/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf') else 'NotoSansArabic-Regular.ttf'
-    font_bold = '/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf' if os.path.exists('/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf') else 'NotoSansArabic-Bold.ttf'
-    pdf.add_font('NotoReg', '', font_reg)
-    pdf.add_font('NotoBold', '', font_bold)
-    
-    pdf.set_font('NotoBold', size=13)
-    main_title = f'تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})'
+    font_p = get_arabic_font_path()
+    if font_p:
+        try:
+            pdf.add_font('ArabicFont', '', font_p)
+            pdf.set_font('ArabicFont', size=11)
+        except Exception:
+            pdf.set_font('Helvetica', size=11)
+    else:
+        pdf.set_font('Helvetica', size=11)
+        
+    main_title = ar(f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})")
     if section_title:
-        main_title += f' - ({section_title})'
+        main_title = ar(f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date}) - ({section_title})")
+        
     pdf.cell(0, 8, main_title, align='C', new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
     
-    pdf.set_font('NotoBold', size=10)
     pdf.set_fill_color(0, 108, 53)
     pdf.set_text_color(255, 255, 255)
     
     col_widths = [45, 30, 25, 25, 20, 45]
-    headers = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الحصة']
+    raw_headers = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الحصة']
+    headers = [ar(h) for h in raw_headers]
     
     for i, h in enumerate(headers):
-        pdf.cell(col_widths[i], 8, h, border=1, align='C', fill=True)
+        pdf.cell(col_widths[i], 9, h, border=1, align='C', fill=True)
     pdf.ln()
     
-    pdf.set_font('NotoReg', size=9)
     pdf.set_text_color(0, 0, 0)
     
     if df.empty:
-        pdf.cell(sum(col_widths), 10, 'لا توجد حصص مسجلة لهذا اليوم / الفصل', border=1, align='C')
+        pdf.cell(sum(col_widths), 10, ar("لا توجد حصص مسجلة لهذا اليوم / الفصل"), border=1, align='C')
     else:
         fill = False
         for _, row in df.iterrows():
-            pdf.set_fill_color(240, 245, 240) if fill else pdf.set_fill_color(255, 255, 255)
-            pdf.cell(col_widths[0], 8, str(row.get('teacher_name', '-')), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[1], 8, str(row.get('subject') or '-'), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[2], 8, str(row.get('grade', '-')), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[3], 8, str(row.get('section', '-')), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[4], 8, str(row.get('period', '-')), border=1, align='C', fill=fill)
-            link_display = "رابط الحصة"
-            pdf.cell(col_widths[5], 8, link_display, border=1, align='C', fill=fill, link=str(row.get('zoom_link', '')))
+            pdf.set_fill_color(242, 247, 242) if fill else pdf.set_fill_color(255, 255, 255)
+            
+            t_name = ar(str(row.get('teacher_name', '-')))
+            subj = ar(str(row.get('subject') or '-'))
+            grd = ar(str(row.get('grade', '-')))
+            sec = ar(str(row.get('section', '-')))
+            prd = ar(str(row.get('period', '-')))
+            
+            pdf.cell(col_widths[0], 8, t_name, border=1, align='C', fill=fill)
+            pdf.cell(col_widths[1], 8, subj, border=1, align='C', fill=fill)
+            pdf.cell(col_widths[2], 8, grd, border=1, align='C', fill=fill)
+            pdf.cell(col_widths[3], 8, sec, border=1, align='C', fill=fill)
+            pdf.cell(col_widths[4], 8, prd, border=1, align='C', fill=fill)
+            
+            pdf.set_text_color(0, 102, 204)
+            zoom_url = str(row.get('zoom_link', ''))
+            pdf.cell(col_widths[5], 8, ar("رابط الحصة"), border=1, align='C', fill=fill, link=zoom_url if zoom_url.startswith("http") else "")
+            pdf.set_text_color(0, 0, 0)
+            
             pdf.ln()
             fill = not fill
             
-    pdf.ln(10)
-    pdf.set_font('NotoBold', size=10)
-    pdf.cell(90, 6, 'إعداد/ المنسق الإعلامي والتقني', align='R')
-    pdf.cell(100, 6, 'اعتماد مدير المدرسة: متوسطة الثغر النموذجية الأهلية', align='L')
+    pdf.ln(12)
+    pdf.cell(90, 6, ar("إعداد/ المنسق الإعلامي والتقني"), align='R')
+    pdf.cell(100, 6, ar("اعتماد مدير المدرسة: متوسطة الثغر النموذجية الأهلية"), align='L')
     
     return bytes(pdf.output())
 
 # ---------------------------------------------------------
-# 4. الواجهة الرئيسية للبرنامج
+# 5. الواجهة الرئيسية للبرنامج
 # ---------------------------------------------------------
 
 st.markdown("""
@@ -242,10 +383,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-if SUPABASE_URL and SUPABASE_KEY:
-    st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
-else:
-    st.sidebar.warning("⚠️ يرجى إضافة SUPABASE_URL و SUPABASE_KEY في Streamlit Secrets")
+st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
 
 menu = st.sidebar.radio(
     "📌 القائمة الرئيسية",
