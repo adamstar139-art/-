@@ -268,19 +268,36 @@ def delete_record(record_id):
 # ---------------------------------------------------------
 # 4. دالة إنشاء تقرير PDF آمن ومصمم برئاسة الهوية السعودية
 # ---------------------------------------------------------
-def get_arabic_font_path():
-    candidates = [
-        "NotoSansArabic-Regular.ttf",
-        "fonts/NotoSansArabic-Regular.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    ]
+def get_arabic_font_path(style="naskh"):
+    if style == "kufi":
+        candidates = [
+            "NotoKufiArabic-Regular.ttf",
+            "fonts/NotoKufiArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoKufiArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+        ]
+    elif style == "naskh":
+        candidates = [
+            "NotoNaskhArabic-Regular.ttf",
+            "fonts/NotoNaskhArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoKufiArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+        ]
+    else:
+        candidates = [
+            "NotoSansArabic-Regular.ttf",
+            "fonts/NotoSansArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"
+        ]
     for p in candidates:
         if os.path.exists(p):
             return p
     return None
 
-def get_arabic_bold_font_path():
+def get_arabic_bold_font_path(style="naskh"):
     candidates = [
         "NotoSansArabic-Bold.ttf",
         "fonts/NotoSansArabic-Bold.ttf",
@@ -293,8 +310,11 @@ def get_arabic_bold_font_path():
     return None
 
 class SaudiPDF(FPDF):
+    def __init__(self, arabic_font_family="naskh"):
+        super().__init__()
+        self.arabic_font_family = arabic_font_family
     def header(self):
-        font_b = get_arabic_bold_font_path()
+        font_b = get_arabic_bold_font_path(getattr(self, "arabic_font_family", "naskh"))
         if font_b:
             try:
                 self.add_font('ArabicBold', '', font_b)
@@ -381,12 +401,12 @@ def generate_qr_image(url_text: str):
 
     return img
 
-def generate_pdf_report(df, selected_date, day_str, section_title=""):
-    pdf = SaudiPDF()
+def generate_pdf_report(df, selected_date, day_str, section_title="", arabic_font_family="naskh"):
+    pdf = SaudiPDF(arabic_font_family=arabic_font_family)
     pdf.add_page()
+    font_p = get_arabic_font_path(arabic_font_family)
+    font_b = get_arabic_bold_font_path(arabic_font_family)
     
-    font_p = get_arabic_font_path()
-    font_b = get_arabic_bold_font_path()
     
     if font_b:
         try:
