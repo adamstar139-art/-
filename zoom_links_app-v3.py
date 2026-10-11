@@ -87,8 +87,10 @@ if "supabase" in st.secrets:
 elif "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-else:
+
+if not SUPABASE_URL:
     SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+if not SUPABASE_KEY:
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 HEADERS = {
@@ -121,7 +123,7 @@ def insert_record(teacher, day, date_val, grade, section, period, link, subject)
     except Exception as e:
         return False, f"تعذر الاتصال بالمشروع: {str(e)}"
 
-def fetch_records(filter_date=None, filter_grade=None):
+def fetch_records(filter_date=None, filter_grade=None, filter_section=None):
     endpoint = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
     params = {
         "select": "id,teacher_name,day_name,lesson_date,grade,section,period,zoom_link,subject",
@@ -131,6 +133,8 @@ def fetch_records(filter_date=None, filter_grade=None):
         params["lesson_date"] = f"eq.{filter_date}"
     if filter_grade and filter_grade != "الكل":
         params["grade"] = f"eq.{filter_grade}"
+    if filter_section and filter_section != "الكل":
+        params["section"] = f"eq.{filter_section}"
         
     try:
         response = requests.get(endpoint, headers=HEADERS, params=params, timeout=10)
@@ -171,7 +175,7 @@ class PDFReport(FPDF):
         self.line(10, 32, 200, 32)
         self.ln(8)
 
-def generate_pdf_report(df, selected_date, day_str):
+def generate_pdf_report(df, selected_date, day_str, section_title=""):
     pdf = PDFReport()
     pdf.add_page()
     
@@ -181,7 +185,10 @@ def generate_pdf_report(df, selected_date, day_str):
     pdf.add_font('NotoBold', '', font_bold)
     
     pdf.set_font('NotoBold', size=13)
-    pdf.cell(0, 8, f'تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})', align='C', new_x='LMARGIN', new_y='NEXT')
+    main_title = f'تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})'
+    if section_title:
+        main_title += f' - ({section_title})'
+    pdf.cell(0, 8, main_title, align='C', new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
     
     pdf.set_font('NotoBold', size=10)
@@ -199,7 +206,7 @@ def generate_pdf_report(df, selected_date, day_str):
     pdf.set_text_color(0, 0, 0)
     
     if df.empty:
-        pdf.cell(sum(col_widths), 10, 'لا توجد حصص مسجلة لهذا اليوم', border=1, align='C')
+        pdf.cell(sum(col_widths), 10, 'لا توجد حصص مسجلة لهذا اليوم / الفصل', border=1, align='C')
     else:
         fill = False
         for _, row in df.iterrows():
@@ -235,7 +242,10 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
+if SUPABASE_URL and SUPABASE_KEY:
+    st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
+else:
+    st.sidebar.warning("⚠️ يرجى إضافة SUPABASE_URL و SUPABASE_KEY في Streamlit Secrets")
 
 menu = st.sidebar.radio(
     "📌 القائمة الرئيسية",
@@ -245,6 +255,12 @@ menu = st.sidebar.radio(
 DAYS_LIST = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"]
 GRADES_LIST = ["الأول متوسط", "الثاني متوسط", "الثالث متوسط"]
 PERIODS_LIST = ["الحصة الأولى", "الحصة الثانية", "الحصة الثالثة", "الحصة الرابعة", "الحصة الخامسة", "الحصة السادسة", "الحصة السابعة"]
+
+ALL_SECTIONS = [
+    "أول أول", "أول ثاني",
+    "ثاني أول", "ثاني ثاني", "ثاني ثالث",
+    "ثالث أول", "ثالث ثاني", "ثالث ثالث"
+]
 
 TEACHERS_LIST = [
     "محمد سامي السعيد",
@@ -282,10 +298,8 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
         subject = st.text_input("المادة الدراسية (مثال: المهارات الرقمية):")
         
     with col2:
-        # اختيار الصف بدون st.form ليعمل الربط الديناميكي الفوري للفصول
         grade = st.selectbox("الصف الدراسي:", GRADES_LIST, key="grade_selectbox")
         
-        # ربط الفصول المتاحة بناءً على الصف المختار ديناميكياً
         if grade == "الأول متوسط":
             section_options = ["أول أول", "أول ثاني"]
         elif grade == "الثاني متوسط":
@@ -314,23 +328,29 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
                 st.error(f"⚠️ {msg}")
 
 elif menu == "📊 التقرير اليومي ولوحة التحكم (الإدارة)":
-    st.subheader("📊 جدول ورصد روابط الحصص اليومية")
+    st.subheader("📊 جدول ورصد روابط الحصص اليومية والطباعة والتصدير")
     
-    col_f1, col_f2 = st.columns(2)
+    col_f1, col_f2, col_f3 = st.columns(3)
     with col_f1:
         selected_date = st.date_input("اختر تاريخ التقرير:", value=date.today())
     with col_f2:
-        selected_grade = st.selectbox("تصفية حسب الصف:", ["الكل"] + GRADES_LIST)
+        selected_grade = st.selectbox("تصفية العرض حسب الصف:", ["الكل"] + GRADES_LIST)
+    with col_f3:
+        selected_section_filter = st.selectbox("تصفية العرض حسب الفصل:", ["الكل"] + ALL_SECTIONS)
         
     date_str = selected_date.strftime("%Y-%m-%d")
-    df = fetch_records(filter_date=date_str, filter_grade=selected_grade)
+    df = fetch_records(
+        filter_date=date_str, 
+        filter_grade=selected_grade,
+        filter_section=selected_section_filter
+    )
     
     day_name_str = DAYS_LIST[selected_date.weekday() % 5] if selected_date.weekday() < 5 else "اليوم"
     
     st.markdown(f"### 📋 حصص يوم {day_name_str} الموافق ({date_str})")
     
     if df.empty:
-        st.warning("ℹ️ لا توجد روابط حصص مسجلة لهذا التاريخ في Supabase حتى الآن.")
+        st.warning("ℹ️ لا توجد روابط حصص مسجلة لهذا التاريخ أو المصفى المختار.")
     else:
         c1, c2, c3 = st.columns(3)
         c1.metric("إجمالي الحصص المسجلة", len(df))
@@ -347,28 +367,57 @@ elif menu == "📊 التقرير اليومي ولوحة التحكم (الإد
         
         st.divider()
         
-        col_exp1, col_exp2 = st.columns(2)
+        st.markdown("### 🖨️ خيارات الطباعة والتصدير (PDF / Excel)")
         
-        with col_exp1:
-            pdf_bytes = generate_pdf_report(df, date_str, day_name_str)
+        tab1, tab2, tab3 = st.tabs(["📄 طباعة التقرير العام الشامل", "🎯 طباعة تقرير فصل منفصل (PDF)", "📊 تصدير Excel"])
+        
+        with tab1:
+            st.write("طباعة تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم:")
+            pdf_bytes_all = generate_pdf_report(df, date_str, day_name_str, section_title="جميع الفصول")
             st.download_button(
-                label="📄 تحميل التقرير الرسمي المطبوع (PDF)",
-                data=pdf_bytes,
-                file_name=f"تقرير_حصص_الزوم_{date_str}.pdf",
-                mime="application/pdf"
+                label="🖨️ تحميل التقرير الشامل لجميع الفصول (PDF)",
+                data=pdf_bytes_all,
+                file_name=f"تقرير_جميع_الفصول_{date_str}.pdf",
+                mime="application/pdf",
+                use_container_width=True
             )
             
-        with col_exp2:
+        with tab2:
+            st.write("اختر فصلاً محداً لطباعة تقرير منفصل به فقط:")
+            target_sec = st.selectbox("اختر الفصل المراد طباعته:", ALL_SECTIONS, key="print_single_section")
+            
+            if 'section' in df.columns:
+                df_sec = df[df['section'] == target_sec]
+            else:
+                df_sec = pd.DataFrame()
+                
+            if df_sec.empty:
+                st.info(f"لا توجد حصص مسجلة لفصل ({target_sec}) في تاريخ {date_str}.")
+            else:
+                st.success(f"تم العثور على {len(df_sec)} حصة مسجلة لفصل ({target_sec}).")
+                
+            pdf_bytes_sec = generate_pdf_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
+            st.download_button(
+                label=f"📄 تحميل تقرير (فصل {target_sec}) منفصل (PDF)",
+                data=pdf_bytes_sec,
+                file_name=f"تقرير_فصل_{target_sec}_{date_str}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+            
+        with tab3:
+            st.write("تصدير الجدول إلى ملف Excel للتعديل أو الأرشفة:")
             excel_buffer = io.BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                 display_df.to_excel(writer, index=False, sheet_name="الحصص")
             excel_bytes = excel_buffer.getvalue()
             
             st.download_button(
-                label="📊 تصدير البيانات إلى Excel (.xlsx)",
+                label="📊 تصدير البيانات إلى ملف Excel (.xlsx)",
                 data=excel_bytes,
                 file_name=f"جدول_الحصص_{date_str}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
 
 elif menu == "⚙️ إدارة وتعديل السجلات":
