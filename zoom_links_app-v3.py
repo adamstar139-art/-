@@ -190,15 +190,18 @@ def ar(text):
 # ---------------------------------------------------------
 # 3. إعدادات وقاعدة بيانات Supabase
 # ---------------------------------------------------------
-SUPABASE_URL = ""
-SUPABASE_KEY = ""
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-if "supabase" in st.secrets:
-    SUPABASE_URL = st.secrets["supabase"].get("url", "")
-    SUPABASE_KEY = st.secrets["supabase"].get("key", "")
-elif "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+try:
+    if "supabase" in st.secrets:
+        SUPABASE_URL = st.secrets["supabase"].get("url", SUPABASE_URL)
+        SUPABASE_KEY = st.secrets["supabase"].get("key", SUPABASE_KEY)
+    elif "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
+        SUPABASE_URL = st.secrets["SUPABASE_URL"]
+        SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+except Exception:
+    pass
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -277,20 +280,32 @@ def get_arabic_font_path():
             return p
     return None
 
+def get_arabic_bold_font_path():
+    candidates = [
+        "NotoSansArabic-Bold.ttf",
+        "fonts/NotoSansArabic-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
 class SaudiPDF(FPDF):
     def header(self):
-        font_p = get_arabic_font_path()
-        if font_p:
+        font_b = get_arabic_bold_font_path()
+        if font_b:
             try:
-                self.add_font('ArabicFont', '', font_p)
-                self.set_font('ArabicFont', size=14)
+                self.add_font('ArabicBold', '', font_b)
+                self.set_font('ArabicBold', size=13)
             except Exception:
-                self.set_font('Helvetica', 'B', 14)
+                self.set_font('Helvetica', 'B', 13)
         else:
-            self.set_font('Helvetica', 'B', 14)
+            self.set_font('Helvetica', 'B', 13)
             
         l1 = ar("المملكة العربية السعودية - وزارة التعليم")
-        l2 = ar("إدارة التعليم بمحافظة جدة")
+        l2 = ar("إدارة التعليم بمحافظة الرياض")
         l3 = ar("مدرسة متوسطة الثغر النموذجية الأهلية")
         
         self.cell(0, 7, l1, align='C', new_x='LMARGIN', new_y='NEXT')
@@ -307,14 +322,16 @@ def generate_pdf_report(df, selected_date, day_str, section_title=""):
     pdf.add_page()
     
     font_p = get_arabic_font_path()
-    if font_p:
+    font_b = get_arabic_bold_font_path()
+    
+    if font_b:
         try:
-            pdf.add_font('ArabicFont', '', font_p)
-            pdf.set_font('ArabicFont', size=11)
+            pdf.add_font('ArabicBold', '', font_b)
+            pdf.set_font('ArabicBold', size=11)
         except Exception:
-            pdf.set_font('Helvetica', size=11)
+            pdf.set_font('Helvetica', 'B', 11)
     else:
-        pdf.set_font('Helvetica', size=11)
+        pdf.set_font('Helvetica', 'B', 11)
         
     main_title = ar(f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})")
     if section_title:
@@ -334,10 +351,18 @@ def generate_pdf_report(df, selected_date, day_str, section_title=""):
         pdf.cell(col_widths[i], 9, h, border=1, align='C', fill=True)
     pdf.ln()
     
+    if font_p:
+        try:
+            pdf.add_font('ArabicFont', '', font_p)
+            pdf.set_font('ArabicFont', size=10)
+        except Exception:
+            pdf.set_font('Helvetica', size=10)
+            
     pdf.set_text_color(0, 0, 0)
     
     if df.empty:
         pdf.cell(sum(col_widths), 10, ar("لا توجد حصص مسجلة لهذا اليوم / الفصل"), border=1, align='C')
+        pdf.ln()
     else:
         fill = False
         for _, row in df.iterrows():
@@ -363,9 +388,43 @@ def generate_pdf_report(df, selected_date, day_str, section_title=""):
             pdf.ln()
             fill = not fill
             
-    pdf.ln(12)
-    pdf.cell(90, 6, ar("إعداد/ المنسق الإعلامي والتقني"), align='R')
-    pdf.cell(100, 6, ar("اعتماد مدير المدرسة: متوسطة الثغر النموذجية الأهلية"), align='L')
+    pdf.ln(10)
+    
+    # ---------------------------------------------------------
+    # الاعتمادات والتوقيعات الرسمية في أسفل كل تقرير
+    # ---------------------------------------------------------
+    if font_b:
+        try:
+            pdf.set_font('ArabicBold', size=10)
+        except Exception:
+            pdf.set_font('Helvetica', 'B', 10)
+            
+    w_col = 63  # 63 * 3 = 189mm (توزيع متناسق لثلاثة أعمدة)
+    
+    s1_title = ar("وكيل الشؤون الطلاب")
+    s1_name = ar("صالح بن عبدالله الدعجاني")
+    
+    s2_title = ar("وكيل الشؤون التعليمية")
+    s2_name = ar("محمد مبروك السيد")
+    
+    s3_title = ar("مدير المدرسة")
+    s3_name = ar("إبراهيم بن موسى التميمي")
+    
+    # السطر الأول: وظائف وكلاء ومدير المدرسة
+    pdf.cell(w_col, 6, s1_title, align='C')
+    pdf.cell(w_col, 6, s2_title, align='C')
+    pdf.cell(w_col, 6, s3_title, align='C', new_x='LMARGIN', new_y='NEXT')
+    
+    # أسماء وكلاء ومدير المدرسة
+    pdf.cell(w_col, 6, s1_name, align='C')
+    pdf.cell(w_col, 6, s2_name, align='C')
+    pdf.cell(w_col, 6, s3_name, align='C', new_x='LMARGIN', new_y='NEXT')
+    
+    pdf.ln(5)
+    
+    # السطر التالي: المسؤول التقني والمنصة: محمد سامي السعيد
+    s4_text = ar("المسؤول التقني والمنصة: محمد سامي السعيد")
+    pdf.cell(0, 7, s4_text, align='C', new_x='LMARGIN', new_y='NEXT')
     
     return bytes(pdf.output())
 
@@ -376,14 +435,14 @@ def generate_pdf_report(df, selected_date, day_str, section_title=""):
 st.markdown("""
 <div class="saudi-header">
     <h1>المملكة العربية السعودية - وزارة التعليم</h1>
-    <h2>إدارة التعليم بمحافظة جدة</h2>
+    <h2>إدارة التعليم بمحافظة الرياض</h2>
     <h3>مدرسة متوسطة الثغر النموذجية الأهلية</h3>
     <hr style="border: 0; height: 1px; background: #C5A059; margin: 10px 0;">
     <p style="margin: 0; font-size: 18px; font-weight: 700;">منصة تسجيل ورصد روابط حصص الزوم (Supabase Cloud Sync)</p>
 </div>
 """, unsafe_allow_html=True)
 
-st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
+st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase (الرياض)")
 
 menu = st.sidebar.radio(
     "📌 القائمة الرئيسية",
@@ -582,4 +641,4 @@ elif menu == "⚙️ إدارة وتعديل السجلات":
                         st.error("تعذر حذف السجل من Supabase.")
 
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: #777; font-size: 13px;'>تطوير نظام إدارة التعليم | متوسطة الثغر النموذجية الأهلية - بجدة © 1448 هـ</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #777; font-size: 13px;'>تطوير نظام إدارة التعليم | متوسطة الثغر النموذجية الأهلية - بالرياض © 1448 هـ</p>", unsafe_allow_html=True)
