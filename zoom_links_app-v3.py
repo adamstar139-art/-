@@ -8,9 +8,9 @@ import io
 import os
 import re
 
-# ---------------------------------------------------------
+# =========================================================
 # 1. إعدادات الصفحة والهوية البصرية (Saudi Theme & RTL)
-# ---------------------------------------------------------
+# =========================================================
 st.set_page_config(
     page_title="نظام جمع روابط الحصص | متوسطة الثغر النموذجية الأهلية",
     page_icon="🏫",
@@ -20,66 +20,62 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
     
-    html, body, [class*="css"], div, span, h1, h2, h3, h4, p, label, input, button {
-        font-family: 'Cairo', sans-serif !important;
+    html, body, [class*="css"], .stApp {
+        font-family: 'Tajawal', sans-serif !important;
         direction: rtl;
         text-align: right;
     }
     
-    .saudi-header {
+    .main-header {
         background: linear-gradient(135deg, #006C35 0%, #004D25 100%);
-        color: #FFFFFF;
-        padding: 22px;
+        color: white;
+        padding: 20px;
         border-radius: 12px;
         text-align: center;
         margin-bottom: 25px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        border-bottom: 5px solid #C5A059;
+        border-bottom: 4px solid #C5A059;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
-    .saudi-header h1 {
-        font-size: 24px;
-        font-weight: 800;
-        margin: 0;
+    .main-header h1 {
         color: #FFFFFF !important;
+        font-weight: 800;
+        margin-bottom: 5px;
     }
     
-    .saudi-header h2 {
-        font-size: 19px;
-        font-weight: 700;
-        margin-top: 5px;
-        color: #D3E7D3 !important;
-    }
-    
-    .saudi-header h3 {
+    .main-header p {
+        color: #E0E0E0;
         font-size: 16px;
-        font-weight: 600;
-        margin-top: 5px;
-        color: #C5A059 !important;
+        margin: 0;
     }
-    
+
     .stButton>button {
-        background-color: #006C35 !important;
-        color: white !important;
-        font-weight: 700 !important;
-        border-radius: 8px !important;
-        padding: 8px 24px !important;
-        border: none !important;
-        width: 100%;
+        background-color: #006C35;
+        color: white;
+        border-radius: 8px;
+        border: none;
+        font-weight: 700;
+        transition: all 0.3s ease;
     }
-    
     .stButton>button:hover {
-        background-color: #004D25 !important;
+        background-color: #004D25;
+        border-color: #C5A059;
+        color: #C5A059;
+    }
+
+    .stDataFrame {
+        border-radius: 10px;
+        overflow: hidden;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# 2. إنشاء شعار مدرسة الثغر وتنسيق الخطوط العربية (RTL)
-# ---------------------------------------------------------
 
+# =========================================================
+# 2. إنشاء شعار مدرسة الثغر ومعالجة الخطوط العربية (RTL)
+# =========================================================
 def create_thaghar_logo_file():
     logo_path = "/workspace/scratch/thaghar_school_logo.png"
     if os.path.exists(logo_path):
@@ -121,50 +117,30 @@ def create_thaghar_logo_file():
         draw.ellipse([cx - int(20*scale), cy - int(40*scale), cx - int(8*scale), cy - int(28*scale)], fill=green)
         draw.ellipse([cx + int(8*scale), cy - int(40*scale), cx + int(20*scale), cy - int(28*scale)], fill=gold)
         
+        os.makedirs(os.path.dirname(logo_path), exist_ok=True)
         img.save(logo_path)
         return logo_path
     except Exception:
         return None
 
+
 ARABIC_MAP = {
-    'ا': ('ﺍ', 'ﺍ', 'ﺎ', 'ﺎ'),
-    'أ': ('ﺃ', 'ﺃ', 'ﺄ', 'ﺄ'),
-    'إ': ('ﺇ', 'ﺇ', 'ﺈ', 'ﺈ'),
-    'آ': ('ﺁ', 'ﺁ', 'ﺂ', 'ﺂ'),
-    'ب': ('ﺏ', 'ﺑ', 'ﺒ', 'ﺐ'),
-    'ت': ('ﺓ', 'ﺕ', 'ﺖ', 'ﺔ'),
-    'ث': ('ﺗ', 'ﺙ', 'ﺚ', 'ﺘ'),
-    'ج': ('ﺝ', 'ﺟ', 'ﺠ', 'ﺞ'),
-    'ح': ('ﺡ', 'ﺣ', 'ﺤ', 'ﺢ'),
-    'خ': ('ﺥ', 'ﺧ', 'ﺨ', 'ﺦ'),
-    'د': ('ﺩ', 'ﺩ', 'ﺪ', 'ﺪ'),
-    'ذ': ('ﺫ', 'ﺫ', 'ﺬ', 'ﺬ'),
-    'ر': ('ﺭ', 'ﺭ', 'ﺮ', 'ﺮ'),
-    'ز': ('ﺯ', 'ﺯ', 'ﺰ', 'ﺰ'),
-    'س': ('ﺱ', 'ﺳ', 'ﺴ', 'ﺲ'),
-    'ش': ('ﺵ', 'ﺷ', 'ﺸ', 'ﺶ'),
-    'ص': ('ﺹ', 'ﺻ', 'ﺼ', 'ﺺ'),
-    'ض': ('ﺽ', 'ﺿ', 'ﻀ', 'ﺾ'),
-    'ط': ('ﻁ', 'ﻃ', 'ﻄ', 'ﻂ'),
-    'ظ': ('ﻅ', 'ﻇ', 'ﻈ', 'ﻆ'),
-    'ع': ('ﻉ', 'ﻋ', 'ﻌ', 'ﻊ'),
-    'غ': ('ﻍ', 'ﻏ', 'ﻐ', 'ﻎ'),
-    'ف': ('ﻑ', 'ﻓ', 'ﻔ', 'ﻒ'),
-    'ق': ('ﻕ', 'ﻗ', 'ﻘ', 'ﻖ'),
-    'ك': ('ﻙ', 'ﻛ', 'ﻜ', 'ﻚ'),
-    'ل': ('ﻝ', 'ﻟ', 'ﻠ', 'ﻞ'),
-    'م': ('ﻡ', 'ﻣ', 'ﻤ', 'ﻢ'),
-    'ن': ('ﻥ', 'ﻧ', 'ﻨ', 'ﻦ'),
-    'ه': ('ﻩ', 'ﻫ', 'ﻬ', 'ﻪ'),
-    'و': ('ﻭ', 'ﻭ', 'ﻮ', 'ﻮ'),
-    'ي': ('ﻯ', 'ﻳ', 'ﻴ', 'ﻰ'),
-    'ى': ('ﻱ', 'ﻱ', 'ﻲ', 'ﻲ'),
-    'ة': ('ﺓ', 'ﺓ', 'ﺔ', 'ﺔ'),
-    'ء': ('ﺀ', 'ﺀ', 'ﺀ', 'ﺀ'),
-    'ئ': ('ﺉ', 'ﺋ', 'ﺌ', 'ﺊ'),
-    'ؤ': ('ﺅ', 'ﺅ', 'ﺆ', 'ﺆ'),
+    'ا': ('ﺍ', 'ﺍ', 'ﺎ', 'ﺎ'), 'أ': ('ﺃ', 'ﺃ', 'ﺄ', 'ﺄ'), 'إ': ('ﺇ', 'ﺇ', 'ﺈ', 'ﺈ'),
+    'آ': ('ﺁ', 'ﺁ', 'ﺂ', 'ﺂ'), 'ب': ('ﺏ', 'ﺑ', 'ﺒ', 'ﺐ'), 'ت': ('ﺓ', 'ﺕ', 'ﺖ', 'ﺔ'),
+    'ث': ('ﺗ', 'ﺙ', 'ﺚ', 'ﺘ'), 'ج': ('ﺝ', 'ﺟ', 'ﺠ', 'ﺞ'), 'ح': ('ﺡ', 'ﺣ', 'ﺤ', 'ﺢ'),
+    'خ': ('ﺥ', 'ﺧ', 'ﺨ', 'ﺦ'), 'د': ('ﺩ', 'ﺩ', 'ﺪ', 'ﺪ'), 'ذ': ('ﺫ', 'ﺫ', 'ﺬ', 'ﺬ'),
+    'ر': ('ﺭ', 'ﺭ', 'ﺮ', 'ﺮ'), 'ز': ('ﺯ', 'ﺯ', 'ﺰ', 'ﺰ'), 'س': ('ﺱ', 'ﺳ', 'ﺴ', 'ﺲ'),
+    'ش': ('ﺵ', 'ﺷ', 'ﺸ', 'ﺶ'), 'ص': ('ﺹ', 'ﺻ', 'ﺼ', 'ﺺ'), 'ض': ('ﺽ', 'ﺿ', 'ﻀ', 'ﺾ'),
+    'ط': ('ﻁ', 'ﻃ', 'ﻄ', 'ﻂ'), 'ظ': ('ﻅ', 'ﻇ', 'ﻈ', 'ﻆ'), 'ع': ('ﻉ', 'ﻋ', 'ﻌ', 'ﻊ'),
+    'غ': ('ﻍ', 'ﻏ', 'ﻐ', 'ﻎ'), 'ف': ('ﻑ', 'ﻓ', 'ﻔ', 'ﻒ'), 'ق': ('ﻕ', 'ﻗ', 'ﻘ', 'ﻖ'),
+    'ك': ('ﻙ', 'ﻛ', 'ﻜ', 'ﻚ'), 'ل': ('ﻝ', 'ﻟ', 'ﻠ', 'ﻞ'), 'م': ('ﻡ', 'ﻣ', 'ﻤ', 'ﻢ'),
+    'ن': ('ﻥ', 'ﻧ', 'ﻨ', 'ﻦ'), 'ه': ('ﻩ', 'ﻫ', 'ﻬ', 'ﻪ'), 'و': ('ﻭ', 'ﻭ', 'ﻮ', 'ﻮ'),
+    'ي': ('ﻯ', 'ﻳ', 'ﻴ', 'ﻰ'), 'ى': ('ﻱ', 'ﻱ', 'ﻲ', 'ﻲ'), 'ة': ('ﺓ', 'ﺓ', 'ﺔ', 'ﺔ'),
+    'ء': ('ﺀ', 'ﺀ', 'ﺀ', 'ﺀ'), 'ئ': ('ﺉ', 'ﺋ', 'ﺌ', 'ﺊ'), 'ؤ': ('ﺅ', 'ﺅ', 'ﺆ', 'ﺆ'),
 }
+
 NON_CONNECTING = {'ا', 'أ', 'إ', 'آ', 'د', 'ذ', 'ر', 'ز', 'و', 'ؤ', 'ة', 'ى'}
+
 LAM_ALEF_MAP = {
     ('ل', 'ا'): ('ﻻ', 'ﻼ'),
     ('ل', 'أ'): ('ﻷ', 'ﻸ'),
@@ -173,7 +149,8 @@ LAM_ALEF_MAP = {
 }
 
 def ar(text):
-    if not text: return ""
+    if not text:
+        return ""
     text = str(text)
     trans_table = str.maketrans("()[]{}", ")(}{][")
     tokens = re.split(r'(\s+)', text)
@@ -233,9 +210,10 @@ def ar(text):
             
     return " ".join(reversed_words)
 
-# ---------------------------------------------------------
+
+# =========================================================
 # 3. إعدادات وقاعدة بيانات Supabase
-# ---------------------------------------------------------
+# =========================================================
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
@@ -291,7 +269,7 @@ def fetch_records(filter_date=None, filter_grade=None, filter_section=None):
         params["grade"] = f"eq.{filter_grade}"
     if filter_section and filter_section != "الكل":
         params["section"] = f"eq.{filter_section}"
-        
+
     try:
         response = requests.get(endpoint, headers=HEADERS, params=params, timeout=10)
         if response.status_code == 200:
@@ -311,85 +289,90 @@ def delete_record(record_id):
     except Exception:
         return False
 
-# ---------------------------------------------------------
-# 4. دالة إنشاء تقرير PDF احترافي بنسب 100% بدون تداخل خطوط
-# ---------------------------------------------------------
+
+# =========================================================
+# 4. دالة إنشاء تقرير PDF بخصائص خط Traditional Arabic / Muhannad Bold
+# =========================================================
+FONT_TRAD_REGULAR = "trado.ttf"         # Traditional Arabic Regular
+FONT_TRAD_BOLD = "tradbdo.ttf"          # Traditional Arabic Bold
+FONT_MUHANNAD_BOLD = "muhannad_bold.ttf" # Muhannad Bold
 
 class ThagharFPDF(FPDF):
     def header(self):
-        font_b = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        font_r = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-        
-        if not os.path.exists(font_b):
-            font_b = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
-        if not os.path.exists(font_r):
-            font_r = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+        font_b = FONT_TRAD_BOLD if os.path.exists(FONT_TRAD_BOLD) else (FONT_MUHANNAD_BOLD if os.path.exists(FONT_MUHANNAD_BOLD) else None)
+        font_r = FONT_TRAD_REGULAR if os.path.exists(FONT_TRAD_REGULAR) else font_b
 
-        self.add_font('MainBold', '', font_b)
-        self.add_font('MainReg', '', font_r)
-        
-        # الشريط العلوي الأخضر والذهبي
+        if font_b and os.path.exists(font_b):
+            self.add_font('ReportBold', '', font_b)
+        else:
+            fallback_b = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
+            if os.path.exists(fallback_b):
+                self.add_font('ReportBold', '', fallback_b)
+
+        if font_r and os.path.exists(font_r):
+            self.add_font('ReportReg', '', font_r)
+        else:
+            fallback_r = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+            if os.path.exists(fallback_r):
+                self.add_font('ReportReg', '', fallback_r)
+
         self.set_fill_color(0, 108, 53)
         self.rect(0, 0, 210, 4, 'F')
         self.set_fill_color(197, 160, 89)
         self.rect(0, 4, 210, 1.5, 'F')
         
-        # شعار مدرسة الثغر
         logo_img = create_thaghar_logo_file()
         if logo_img and os.path.exists(logo_img):
             self.image(logo_img, x=15, y=9, w=22)
             
-        # نص الترويسة الرسمية
-        self.set_font('MainBold', size=14)
+        self.set_font('ReportBold', size=14)
         self.set_text_color(0, 108, 53)
         self.cell(0, 8, ar("المملكة العربية السعودية - وزارة التعليم"), align='C', new_x='LMARGIN', new_y='NEXT')
         
-        self.set_font('MainReg', size=11)
+        self.set_font('ReportReg', size=11)
         self.set_text_color(80, 80, 80)
         self.cell(0, 6, ar("إدارة التعليم بمحافظة الرياض"), align='C', new_x='LMARGIN', new_y='NEXT')
         
-        self.set_font('MainBold', size=13)
+        self.set_font('ReportBold', size=13)
         self.set_text_color(0, 108, 53)
         self.cell(0, 8, ar("مدرسة متوسطة الثغر النموذجية الأهلية"), align='C', new_x='LMARGIN', new_y='NEXT')
         
-        # خط فاصل ذهبي
         self.set_draw_color(197, 160, 89)
         self.set_line_width(0.8)
         self.line(15, 36, 195, 36)
         self.ln(6)
 
+
 def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
     pdf = ThagharFPDF()
     pdf.add_page()
-    
-    # عنوان التقرير الرئاسي
-    pdf.set_font('MainBold', size=12)
+
+    pdf.set_font('ReportBold', size=12)
     pdf.set_fill_color(240, 248, 242)
     pdf.set_draw_color(0, 108, 53)
     pdf.set_text_color(0, 108, 53)
-    
+
     title_str = f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})"
     if section_title:
         title_str += f" - ({section_title})"
         
     pdf.cell(0, 10, ar(title_str), border=1, align='C', fill=True, new_x='LMARGIN', new_y='NEXT')
     pdf.ln(5)
-    
-    # ترتيب أعمدة الجدول من اليمين إلى اليسار (RTL Table)
+
     col_widths = [38, 25, 25, 30, 32, 40]
     headers_rtl = ['رابط الحصة', 'الحصة', 'الفصل', 'الصف', 'المادة', 'المعلم']
-    
+
     pdf.set_fill_color(0, 108, 53)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font('MainBold', size=10)
-    
+    pdf.set_font('ReportBold', size=10)
+
     for i, h in enumerate(headers_rtl):
         pdf.cell(col_widths[i], 9, ar(h), border=1, align='C', fill=True)
     pdf.ln()
-    
+
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font('MainReg', size=9.5)
-    
+    pdf.set_font('ReportReg', size=9.5)
+
     if df.empty:
         pdf.cell(sum(col_widths), 10, ar("لا توجد حصص مسجلة لهذا اليوم / الفصل"), border=1, align='C')
         pdf.ln()
@@ -398,13 +381,11 @@ def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
         for _, row in df.iterrows():
             pdf.set_fill_color(245, 248, 245) if fill else pdf.set_fill_color(255, 255, 255)
             
-            # Col 0: Zoom Link (Leftmost)
             zoom_url = str(row.get('zoom_link', ''))
             pdf.set_text_color(0, 102, 204)
             pdf.cell(col_widths[0], 8, ar("رابط الحصة"), border=1, align='C', fill=fill, link=zoom_url if zoom_url.startswith("http") else "")
             pdf.set_text_color(0, 0, 0)
             
-            # Cols 1 to 5
             pdf.cell(col_widths[1], 8, ar(str(row.get('period', '-'))), border=1, align='C', fill=fill)
             pdf.cell(col_widths[2], 8, ar(str(row.get('section', '-'))), border=1, align='C', fill=fill)
             pdf.cell(col_widths[3], 8, ar(str(row.get('grade', '-'))), border=1, align='C', fill=fill)
@@ -415,44 +396,42 @@ def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
             fill = not fill
             
     pdf.ln(12)
-    
-    # التوقيعات والاعتمادات الرسمية أسفل التقرير
-    pdf.set_font('MainBold', size=9.5)
+
+    pdf.set_font('ReportBold', size=9.5)
     w_col = 60
     pdf.cell(w_col, 6, ar("وكيل الشؤون الطلاب"), align='C')
     pdf.cell(w_col, 6, ar("وكيل الشؤون التعليمية"), align='C')
     pdf.cell(w_col, 6, ar("مدير المدرسة"), align='C', new_x='LMARGIN', new_y='NEXT')
-    
-    pdf.set_font('MainReg', size=9)
+
+    pdf.set_font('ReportReg', size=9)
     pdf.cell(w_col, 6, ar("صالح بن عبدالله الدعجاني"), align='C')
     pdf.cell(w_col, 6, ar("محمد مبروك السيد"), align='C')
     pdf.cell(w_col, 6, ar("إبراهيم بن موسى التميمي"), align='C', new_x='LMARGIN', new_y='NEXT')
-    
+
     pdf.ln(4)
-    pdf.set_font('MainBold', size=9.5)
+    pdf.set_font('ReportBold', size=9.5)
     pdf.cell(0, 6, ar("المسؤول التقني والمنصة: محمد سامي السعيد"), align='C', new_x='LMARGIN', new_y='NEXT')
-    
+
     return bytes(pdf.output())
 
-# ---------------------------------------------------------
+
+# =========================================================
 # 5. الواجهة الرئيسية والتنقل بين الصفحات
-# ---------------------------------------------------------
+# =========================================================
 
 st.markdown("""
-<div class="saudi-header">
-    <h1>المملكة العربية السعودية - وزارة التعليم</h1>
-    <h2>إدارة التعليم بمحافظة الرياض</h2>
-    <h3>مدرسة متوسطة الثغر النموذجية الأهلية</h3>
-    <hr style="border: 0; height: 1px; background: #C5A059; margin: 10px 0;">
-    <p style="margin: 0; font-size: 18px; font-weight: 700;">منصة تسجيل ورصد روابط حصص الزوم (Supabase Cloud Sync)</p>
+<div class="main-header">
+    <h1>🏫 نظام جمع ورصد روابط حصص الزوم</h1>
+    <p>متوسطة الثغر النموذجية الأهلية بالرياض - الكنترول والإدارة المدرسة</p>
 </div>
 """, unsafe_allow_html=True)
 
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
+st.sidebar.title("📌 القائمة الرئيسية")
 menu = st.sidebar.radio(
-    "📌 القائمة الرئيسية",
+    "انتقل إلى:",
     ["📝 تسجيل رابط حصة (المعلم)", "📊 التقرير اليومي ولوحة التحكم (الإدارة)", "⚙️ إدارة وتعديل السجلات"]
 )
 
@@ -467,9 +446,7 @@ GRADES_LIST = ["الأول متوسط", "الثاني متوسط", "الثالث
 PERIODS_LIST = ["الحصة الأولى", "الحصة الثانية", "الحصة الثالثة", "الحصة الرابعة", "الحصة الخامسة", "الحصة السادسة", "الحصة السابعة"]
 
 ALL_SECTIONS = [
-    "أول أول", "أول ثاني",
-    "ثاني أول", "ثاني ثاني", "ثاني ثالث",
-    "ثالث أول", "ثالث ثاني", "ثالث ثالث"
+    "أول أول", "أول ثاني", "ثاني أول", "ثاني ثاني", "ثاني ثالث", "ثالث أول", "ثالث ثاني", "ثالث ثالث"
 ]
 
 TEACHERS_LIST = [
@@ -492,7 +469,7 @@ TEACHERS_LIST = [
 
 if menu == "📝 تسجيل رابط حصة (المعلم)":
     st.subheader("📝 نموذج إضافة رابط حصة افتراضية جديد")
-    st.info("💡 اختر البيانات واضغط حفظ لإرسال الرابط مباشرة.")
+    st.info("💡 اختر البيانات واضغط حفظ لإرسال الرابط مباشرة إلى نظام الإدارة.")
     
     col1, col2 = st.columns(2)
     
@@ -531,7 +508,10 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
         elif not zoom_link.startswith("http"):
             st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
         else:
-            success, msg = insert_record(teacher_name, day_name, lesson_date.strftime("%Y-%m-%d"), grade, section, period, zoom_link, subject)
+            success, msg = insert_record(
+                teacher_name, day_name, lesson_date.strftime("%Y-%m-%d"), 
+                grade, section, period, zoom_link, subject
+            )
             if success:
                 st.success(f"✅ تم حفظ رابط الحصة بنجاح للمعلم ({teacher_name}) - {grade} ({section}) - {period}!")
             else:
