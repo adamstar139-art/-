@@ -160,7 +160,7 @@ def delete_record(record_id):
 # ---------------------------------------------------------
 class PDFReport(FPDF):
     def header(self):
-        font_path = '/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf'
+        font_path = '/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf' if os.path.exists('/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf') else 'NotoSansArabic-Bold.ttf'
         self.add_font('NotoBold', '', font_path)
         self.set_font('NotoBold', size=14)
         
@@ -179,8 +179,8 @@ def generate_pdf_report(df, selected_date, day_str, section_title=""):
     pdf = PDFReport()
     pdf.add_page()
     
-    font_reg = '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf'
-    font_bold = '/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf'
+    font_reg = '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf' if os.path.exists('/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf') else 'NotoSansArabic-Regular.ttf'
+    font_bold = '/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf' if os.path.exists('/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf') else 'NotoSansArabic-Bold.ttf'
     pdf.add_font('NotoReg', '', font_reg)
     pdf.add_font('NotoBold', '', font_bold)
     
