@@ -317,6 +317,70 @@ class SaudiPDF(FPDF):
         self.line(10, 32, 200, 32)
         self.ln(8)
 
+
+def generate_qr_image(url_text: str):
+    from PIL import Image, ImageDraw
+    data = url_text.encode('utf-8')
+    length = len(data)
+    size = 25 if length <= 30 else (29 if length <= 50 else 33)
+    border, box_size = 2, 4
+    matrix = [[0] * size for _ in range(size)]
+    reserved = [[False] * size for _ in range(size)]
+
+    def place_finder(r, c):
+        for dr in range(-1, 8):
+            for dc in range(-1, 8):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < size and 0 <= nc < size:
+                    reserved[nr][nc] = True
+                    if 0 <= dr <= 6 and 0 <= dc <= 6:
+                        if dr in (0, 6) or dc in (0, 6) or (2 <= dr <= 4 and 2 <= dc <= 4):
+                            matrix[nr][nc] = 1
+                        else:
+                            matrix[nr][nc] = 0
+                    else:
+                        matrix[nr][nc] = 0
+
+    place_finder(0, 0)
+    place_finder(0, size - 7)
+    place_finder(size - 7, 0)
+
+    for i in range(size):
+        if not reserved[6][i]:
+            reserved[6][i] = True
+            matrix[6][i] = 1 if i % 2 == 0 else 0
+        if not reserved[i][6]:
+            reserved[i][6] = True
+            matrix[i][6] = 1 if i % 2 == 0 else 0
+
+    bits = []
+    for b in data:
+        for i in range(7, -1, -1):
+            bits.append((b >> i) & 1)
+
+    bit_idx = 0
+    for r in range(size):
+        for c in range(size):
+            if not reserved[r][c]:
+                if bit_idx < len(bits):
+                    matrix[r][c] = bits[bit_idx]
+                    bit_idx += 1
+                else:
+                    matrix[r][c] = (r + c) % 2
+
+    img_dim = (size + 2 * border) * box_size
+    img = Image.new('RGB', (img_dim, img_dim), 'white')
+    draw = ImageDraw.Draw(img)
+
+    for r in range(size):
+        for c in range(size):
+            if matrix[r][c] == 1:
+                x0 = (c + border) * box_size
+                y0 = (r + border) * box_size
+                draw.rectangle([x0, y0, x0 + box_size, y0 + box_size], fill='black')
+
+    return img
+
 def generate_pdf_report(df, selected_date, day_str, section_title=""):
     pdf = SaudiPDF()
     pdf.add_page()
