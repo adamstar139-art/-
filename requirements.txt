@@ -1,7 +1,6 @@
 streamlit
 pandas
-sqlalchemy
-psycopg2-binary
-fpdf2
-openpyxl
 requests
+fpdf2
+Pillow
+openpyxl
