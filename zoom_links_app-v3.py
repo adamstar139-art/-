@@ -2,9 +2,11 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import date, datetime
+from fpdf import FPDF
+from PIL import Image, ImageDraw
 import io
 import os
-from PIL import Image, ImageDraw, ImageFont
+import re
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والهوية البصرية (Saudi Theme & RTL)
@@ -75,7 +77,164 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. إعدادات وقاعدة بيانات Supabase
+# 2. إنشاء شعار مدرسة الثغر وتنسيق الخطوط العربية (RTL)
+# ---------------------------------------------------------
+
+def create_thaghar_logo_file():
+    logo_path = "/workspace/scratch/thaghar_school_logo.png"
+    if os.path.exists(logo_path):
+        return logo_path
+    try:
+        w, h = 300, 300
+        img = Image.new('RGBA', (w, h), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(img)
+        
+        green = (0, 108, 53, 255)
+        gold = (197, 160, 89, 255)
+        cx, cy = 150, 150
+        scale = 1.8
+        
+        b_pts_outer = [
+            (cx - int(60*scale), cy - int(10*scale)),
+            (cx - int(5*scale), cy + int(25*scale)),
+            (cx, cy + int(30*scale)),
+            (cx + int(5*scale), cy + int(25*scale)),
+            (cx + int(60*scale), cy - int(10*scale)),
+            (cx + int(65*scale), cy - int(5*scale)),
+            (cx + int(5*scale), cy + int(35*scale)),
+            (cx, cy + int(40*scale)),
+            (cx - int(5*scale), cy + int(35*scale)),
+            (cx - int(65*scale), cy - int(5*scale)),
+        ]
+        draw.polygon(b_pts_outer, fill=green)
+        
+        for offset, color in [(-10, green), (-3, gold), (3, green)]:
+            draw.line([
+                (cx - int(50*scale), cy - int(3*scale) + int(offset*scale)),
+                (cx - int(5*scale), cy + int(20*scale) + int(offset*scale))
+            ], fill=color, width=int(3*scale))
+            draw.line([
+                (cx + int(50*scale), cy - int(3*scale) + int(offset*scale)),
+                (cx + int(5*scale), cy + int(20*scale) + int(offset*scale))
+            ], fill=color, width=int(3*scale))
+            
+        draw.ellipse([cx - int(20*scale), cy - int(40*scale), cx - int(8*scale), cy - int(28*scale)], fill=green)
+        draw.ellipse([cx + int(8*scale), cy - int(40*scale), cx + int(20*scale), cy - int(28*scale)], fill=gold)
+        
+        img.save(logo_path)
+        return logo_path
+    except Exception:
+        return None
+
+ARABIC_MAP = {
+    'ا': ('ﺍ', 'ﺍ', 'ﺎ', 'ﺎ'),
+    'أ': ('ﺃ', 'ﺃ', 'ﺄ', 'ﺄ'),
+    'إ': ('ﺇ', 'ﺇ', 'ﺈ', 'ﺈ'),
+    'آ': ('ﺁ', 'ﺁ', 'ﺂ', 'ﺂ'),
+    'ب': ('ﺏ', 'ﺑ', 'ﺒ', 'ﺐ'),
+    'ت': ('ﺓ', 'ﺕ', 'ﺖ', 'ﺔ'),
+    'ث': ('ﺗ', 'ﺙ', 'ﺚ', 'ﺘ'),
+    'ج': ('ﺝ', 'ﺟ', 'ﺠ', 'ﺞ'),
+    'ح': ('ﺡ', 'ﺣ', 'ﺤ', 'ﺢ'),
+    'خ': ('ﺥ', 'ﺧ', 'ﺨ', 'ﺦ'),
+    'د': ('ﺩ', 'ﺩ', 'ﺪ', 'ﺪ'),
+    'ذ': ('ﺫ', 'ﺫ', 'ﺬ', 'ﺬ'),
+    'ر': ('ﺭ', 'ﺭ', 'ﺮ', 'ﺮ'),
+    'ز': ('ﺯ', 'ﺯ', 'ﺰ', 'ﺰ'),
+    'س': ('ﺱ', 'ﺳ', 'ﺴ', 'ﺲ'),
+    'ش': ('ﺵ', 'ﺷ', 'ﺸ', 'ﺶ'),
+    'ص': ('ﺹ', 'ﺻ', 'ﺼ', 'ﺺ'),
+    'ض': ('ﺽ', 'ﺿ', 'ﻀ', 'ﺾ'),
+    'ط': ('ﻁ', 'ﻃ', 'ﻄ', 'ﻂ'),
+    'ظ': ('ﻅ', 'ﻇ', 'ﻈ', 'ﻆ'),
+    'ع': ('ﻉ', 'ﻋ', 'ﻌ', 'ﻊ'),
+    'غ': ('ﻍ', 'ﻏ', 'ﻐ', 'ﻎ'),
+    'ف': ('ﻑ', 'ﻓ', 'ﻔ', 'ﻒ'),
+    'ق': ('ﻕ', 'ﻗ', 'ﻘ', 'ﻖ'),
+    'ك': ('ﻙ', 'ﻛ', 'ﻜ', 'ﻚ'),
+    'ل': ('ﻝ', 'ﻟ', 'ﻠ', 'ﻞ'),
+    'م': ('ﻡ', 'ﻣ', 'ﻤ', 'ﻢ'),
+    'ن': ('ﻥ', 'ﻧ', 'ﻨ', 'ﻦ'),
+    'ه': ('ﻩ', 'ﻫ', 'ﻬ', 'ﻪ'),
+    'و': ('ﻭ', 'ﻭ', 'ﻮ', 'ﻮ'),
+    'ي': ('ﻯ', 'ﻳ', 'ﻴ', 'ﻰ'),
+    'ى': ('ﻱ', 'ﻱ', 'ﻲ', 'ﻲ'),
+    'ة': ('ﺓ', 'ﺓ', 'ﺔ', 'ﺔ'),
+    'ء': ('ﺀ', 'ﺀ', 'ﺀ', 'ﺀ'),
+    'ئ': ('ﺉ', 'ﺋ', 'ﺌ', 'ﺊ'),
+    'ؤ': ('ﺅ', 'ﺅ', 'ﺆ', 'ﺆ'),
+}
+NON_CONNECTING = {'ا', 'أ', 'إ', 'آ', 'د', 'ذ', 'ر', 'ز', 'و', 'ؤ', 'ة', 'ى'}
+LAM_ALEF_MAP = {
+    ('ل', 'ا'): ('ﻻ', 'ﻼ'),
+    ('ل', 'أ'): ('ﻷ', 'ﻸ'),
+    ('ل', 'إ'): ('ﻹ', 'ﻺ'),
+    ('ل', 'آ'): ('ﻵ', 'ﻶ'),
+}
+
+def ar(text):
+    if not text: return ""
+    text = str(text)
+    trans_table = str.maketrans("()[]{}", ")(}{][")
+    tokens = re.split(r'(\s+)', text)
+    processed_tokens = []
+    
+    for token in tokens:
+        if not token.strip():
+            processed_tokens.append(token)
+            continue
+        has_arabic = any(c in ARABIC_MAP for c in token)
+        if not has_arabic:
+            processed_tokens.append(token)
+            continue
+            
+        reshaped = []
+        n = len(token)
+        i = 0
+        while i < n:
+            if i < n - 1 and token[i] == 'ل' and token[i+1] in ('ا', 'أ', 'إ', 'آ'):
+                pair = (token[i], token[i+1])
+                prev_conn = (i > 0) and (token[i-1] in ARABIC_MAP) and (token[i-1] not in NON_CONNECTING)
+                iso, fin = LAM_ALEF_MAP[pair]
+                reshaped.append(fin if prev_conn else iso)
+                i += 2
+                continue
+                
+            c = token[i]
+            if c not in ARABIC_MAP:
+                reshaped.append(c.translate(trans_table))
+                i += 1
+                continue
+                
+            prev_conn = (i > 0) and (token[i-1] in ARABIC_MAP) and (token[i-1] not in NON_CONNECTING)
+            next_conn = (i < n - 1) and (token[i+1] in ARABIC_MAP)
+            iso, ini, med, fin = ARABIC_MAP[c]
+            
+            if prev_conn and next_conn and (c not in NON_CONNECTING):
+                reshaped.append(med)
+            elif prev_conn:
+                reshaped.append(fin)
+            elif next_conn and (c not in NON_CONNECTING):
+                reshaped.append(ini)
+            else:
+                reshaped.append(iso)
+            i += 1
+            
+        processed_tokens.append("".join(reshaped))
+        
+    full_str = "".join(processed_tokens)
+    words = full_str.split(' ')
+    reversed_words = []
+    for w in reversed(words):
+        if any(ord(c) > 127 for c in w):
+            reversed_words.append(w[::-1])
+        else:
+            reversed_words.append(w)
+            
+    return " ".join(reversed_words)
+
+# ---------------------------------------------------------
+# 3. إعدادات وقاعدة بيانات Supabase
 # ---------------------------------------------------------
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -153,165 +312,130 @@ def delete_record(record_id):
         return False
 
 # ---------------------------------------------------------
-# 3. دالة إنشاء تقرير PDF عالي الجودة ومطابق لخط التقرير الشامل
+# 4. دالة إنشاء تقرير PDF احترافي بنسب 100% بدون تداخل خطوط
 # ---------------------------------------------------------
 
-def draw_thagher_logo(draw, cx, cy, scale=1.2):
-    navy = (26, 46, 90)
-    gold = (197, 160, 89)
-    
-    b_pts_outer = [
-        (cx - int(100*scale), cy - int(20*scale)),
-        (cx - int(10*scale), cy + int(40*scale)),
-        (cx, cy + int(50*scale)),
-        (cx + int(10*scale), cy + int(40*scale)),
-        (cx + int(100*scale), cy - int(20*scale)),
-        (cx + int(110*scale), cy - int(10*scale)),
-        (cx + int(10*scale), cy + int(55*scale)),
-        (cx, cy + int(65*scale)),
-        (cx - int(10*scale), cy + int(55*scale)),
-        (cx - int(110*scale), cy - int(10*scale)),
-    ]
-    draw.polygon(b_pts_outer, fill=navy)
-    
-    for offset, color in [(-15, navy), (-5, gold), (5, navy)]:
-        draw.line([
-            (cx - int(80*scale), cy - int(5*scale) + int(offset*scale)),
-            (cx - int(10*scale), cy + int(35*scale) + int(offset*scale))
-        ], fill=color, width=int(4*scale))
-        draw.line([
-            (cx + int(80*scale), cy - int(5*scale) + int(offset*scale)),
-            (cx + int(10*scale), cy + int(35*scale) + int(offset*scale))
-        ], fill=color, width=int(4*scale))
+class ThagharFPDF(FPDF):
+    def header(self):
+        font_b = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        font_r = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         
-    draw.ellipse([cx - int(35*scale), cy - int(65*scale), cx - int(15*scale), cy - int(45*scale)], fill=navy)
-    draw.polygon([
-        (cx - int(25*scale), cy - int(42*scale)),
-        (cx - int(50*scale), cy - int(10*scale)),
-        (cx - int(5*scale), cy + int(10*scale)),
-    ], fill=navy)
+        if not os.path.exists(font_b):
+            font_b = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
+        if not os.path.exists(font_r):
+            font_r = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+
+        self.add_font('MainBold', '', font_b)
+        self.add_font('MainReg', '', font_r)
+        
+        # الشريط العلوي الأخضر والذهبي
+        self.set_fill_color(0, 108, 53)
+        self.rect(0, 0, 210, 4, 'F')
+        self.set_fill_color(197, 160, 89)
+        self.rect(0, 4, 210, 1.5, 'F')
+        
+        # شعار مدرسة الثغر
+        logo_img = create_thaghar_logo_file()
+        if logo_img and os.path.exists(logo_img):
+            self.image(logo_img, x=15, y=9, w=22)
+            
+        # نص الترويسة الرسمية
+        self.set_font('MainBold', size=14)
+        self.set_text_color(0, 108, 53)
+        self.cell(0, 8, ar("المملكة العربية السعودية - وزارة التعليم"), align='C', new_x='LMARGIN', new_y='NEXT')
+        
+        self.set_font('MainReg', size=11)
+        self.set_text_color(80, 80, 80)
+        self.cell(0, 6, ar("إدارة التعليم بمحافظة الرياض"), align='C', new_x='LMARGIN', new_y='NEXT')
+        
+        self.set_font('MainBold', size=13)
+        self.set_text_color(0, 108, 53)
+        self.cell(0, 8, ar("مدرسة متوسطة الثغر النموذجية الأهلية"), align='C', new_x='LMARGIN', new_y='NEXT')
+        
+        # خط فاصل ذهبي
+        self.set_draw_color(197, 160, 89)
+        self.set_line_width(0.8)
+        self.line(15, 36, 195, 36)
+        self.ln(6)
+
+def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
+    pdf = ThagharFPDF()
+    pdf.add_page()
     
-    draw.ellipse([cx + int(15*scale), cy - int(65*scale), cx + int(35*scale), cy - int(45*scale)], fill=gold)
-    draw.polygon([
-        (cx + int(25*scale), cy - int(42*scale)),
-        (cx + int(50*scale), cy - int(10*scale)),
-        (cx + int(5*scale), cy + int(10*scale)),
-    ], fill=gold)
-
-def generate_perfect_pdf_report(df_records, selected_date, day_str, section_title=""):
-    W, H = 2480, 3508 # A4 at 300 DPI
-    img = Image.new('RGB', (W, H), (255, 255, 255))
-    draw = ImageDraw.Draw(img)
-
-    # البحث عن الخط الكوفي/النسخي المعتمد
-    kufi_bold = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
-    kufi_reg = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
+    # عنوان التقرير الرئاسي
+    pdf.set_font('MainBold', size=12)
+    pdf.set_fill_color(240, 248, 242)
+    pdf.set_draw_color(0, 108, 53)
+    pdf.set_text_color(0, 108, 53)
     
-    if not os.path.exists(kufi_bold):
-        kufi_bold = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
-    if not os.path.exists(kufi_reg):
-        kufi_reg = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
-
-    font_header_bold = ImageFont.truetype(kufi_bold, 52)
-    font_title_bold = ImageFont.truetype(kufi_bold, 44)
-    font_tbl_head = ImageFont.truetype(kufi_bold, 36)
-    font_tbl_body = ImageFont.truetype(kufi_reg, 34)
-    font_sub = ImageFont.truetype(kufi_reg, 38)
-    font_footer_b = ImageFont.truetype(kufi_bold, 34)
-    font_footer_r = ImageFont.truetype(kufi_reg, 32)
-
-    # شريط الهوية العلوية
-    draw.rectangle([0, 0, W, 45], fill=(0, 108, 53))
-    draw.rectangle([0, 45, W, 60], fill=(197, 160, 89))
-
-    # ترويسة التقرير
-    y = 140
-    draw.text((W // 2, y), "المملكة العربية السعودية - وزارة التعليم", fill=(0, 108, 53), font=font_header_bold, anchor="mm")
-    y += 85
-    draw.text((W // 2, y), "إدارة التعليم بمحافظة الرياض", fill=(70, 70, 70), font=font_sub, anchor="mm")
-    y += 75
-    draw.text((W // 2, y), "مدرسة متوسطة الثغر النموذجية الأهلية", fill=(0, 108, 53), font=font_header_bold, anchor="mm")
-
-    y += 80
-    draw.line([120, y, W - 120, y], fill=(197, 160, 89), width=5)
-
-    # عنوان التقرير
-    y += 85
-    title_text = f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})"
+    title_str = f"تقرير روابط حصص الزوم اليومية - يوم {day_str} ({selected_date})"
     if section_title:
-        title_text += f" - ({section_title})"
+        title_str += f" - ({section_title})"
+        
+    pdf.cell(0, 10, ar(title_str), border=1, align='C', fill=True, new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(5)
     
-    draw.rounded_rectangle([150, y, W - 150, y + 110], radius=18, fill=(240, 248, 242), outline=(0, 108, 53), width=4)
-    draw.text((W // 2, y + 55), title_text, fill=(0, 108, 53), font=font_title_bold, anchor="mm")
-
-    # إعداد جدول الحصص
-    y_table = y + 170
-    col_widths = [480, 320, 280, 260, 260, 520]
-    x_start = (W - sum(col_widths)) // 2
-
-    headers = ["المعلم", "المادة", "الصف", "الفصل", "الحصة", "رابط الحصة"]
-    row_height = 95
-
-    x_curr = x_start
-    for i, h_text in enumerate(headers):
-        w_col = col_widths[i]
-        draw.rectangle([x_curr, y_table, x_curr + w_col, y_table + row_height], fill=(0, 108, 53), outline=(0, 80, 40), width=2)
-        draw.text((x_curr + w_col // 2, y_table + row_height // 2), h_text, fill=(255, 255, 255), font=font_tbl_head, anchor="mm")
-        x_curr += w_col
-
-    y_curr = y_table + row_height
-
-    if df_records.empty:
-        total_w = sum(col_widths)
-        draw.rectangle([x_start, y_curr, x_start + total_w, y_curr + 120], fill=(255, 255, 255), outline=(200, 200, 200), width=2)
-        draw.text((W // 2, y_curr + 60), "لا توجد حصص مسجلة لهذا اليوم / الفصل", fill=(100, 100, 100), font=font_tbl_body, anchor="mm")
-        y_curr += 120
+    # ترتيب أعمدة الجدول من اليمين إلى اليسار (RTL Table)
+    col_widths = [38, 25, 25, 30, 32, 40]
+    headers_rtl = ['رابط الحصة', 'الحصة', 'الفصل', 'الصف', 'المادة', 'المعلم']
+    
+    pdf.set_fill_color(0, 108, 53)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font('MainBold', size=10)
+    
+    for i, h in enumerate(headers_rtl):
+        pdf.cell(col_widths[i], 9, ar(h), border=1, align='C', fill=True)
+    pdf.ln()
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font('MainReg', size=9.5)
+    
+    if df.empty:
+        pdf.cell(sum(col_widths), 10, ar("لا توجد حصص مسجلة لهذا اليوم / الفصل"), border=1, align='C')
+        pdf.ln()
     else:
-        for idx, row in df_records.iterrows():
-            bg_color = (245, 250, 246) if idx % 2 == 1 else (255, 255, 255)
-            vals = [
-                str(row.get('teacher_name', '-')),
-                str(row.get('subject') or '-'),
-                str(row.get('grade', '-')),
-                str(row.get('section', '-')),
-                str(row.get('period', '-')),
-                "رابط الحصة المباشر"
-            ]
-            x_curr = x_start
-            for i, val in enumerate(vals):
-                w_col = col_widths[i]
-                draw.rectangle([x_curr, y_curr, x_curr + w_col, y_curr + row_height], fill=bg_color, outline=(210, 220, 212), width=2)
-                text_color = (0, 102, 204) if i == 5 else (30, 30, 30)
-                draw.text((x_curr + w_col // 2, y_curr + row_height // 2), val, fill=text_color, font=font_tbl_body, anchor="mm")
-                x_curr += w_col
-            y_curr += row_height
-
-    # قسم التوقيعات والاعتمادات الرسمية
-    y_footer = max(y_curr + 120, H - 550)
-    draw.line([120, y_footer - 40, W - 120, y_footer - 40], fill=(200, 200, 200), width=3)
-
-    w_sec = (W - 240) // 3
-    x1 = 120 + w_sec // 2
-    x2 = 120 + w_sec + w_sec // 2
-    x3 = 120 + 2 * w_sec + w_sec // 2
-
-    draw.text((x1, y_footer), "وكيل الشؤون الطلاب", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
-    draw.text((x2, y_footer), "وكيل الشؤون التعليمية", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
-    draw.text((x3, y_footer), "مدير المدرسة", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
-
-    draw.text((x1, y_footer + 65), "صالح بن عبدالله الدعجاني", fill=(40, 40, 40), font=font_footer_r, anchor="mm")
-    draw.text((x2, y_footer + 65), "محمد مبروك السيد", fill=(40, 40, 40), font=font_footer_r, anchor="mm")
-    draw.text((x3, y_footer + 65), "إبراهيم بن موسى التميمي", fill=(40, 40, 40), font=font_footer_r, anchor="mm")
-
-    y_footer_2 = y_footer + 160
-    draw.text((W // 2, y_footer_2), "المسؤول التقني والمنصة: محمد سامي السعيد", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
-
-    pdf_bytes_io = io.BytesIO()
-    img.save(pdf_bytes_io, format='PDF', resolution=300.0)
-    return pdf_bytes_io.getvalue()
+        fill = False
+        for _, row in df.iterrows():
+            pdf.set_fill_color(245, 248, 245) if fill else pdf.set_fill_color(255, 255, 255)
+            
+            # Col 0: Zoom Link (Leftmost)
+            zoom_url = str(row.get('zoom_link', ''))
+            pdf.set_text_color(0, 102, 204)
+            pdf.cell(col_widths[0], 8, ar("رابط الحصة"), border=1, align='C', fill=fill, link=zoom_url if zoom_url.startswith("http") else "")
+            pdf.set_text_color(0, 0, 0)
+            
+            # Cols 1 to 5
+            pdf.cell(col_widths[1], 8, ar(str(row.get('period', '-'))), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[2], 8, ar(str(row.get('section', '-'))), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[3], 8, ar(str(row.get('grade', '-'))), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[4], 8, ar(str(row.get('subject') or '-')), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[5], 8, ar(str(row.get('teacher_name', '-'))), border=1, align='C', fill=fill)
+            
+            pdf.ln()
+            fill = not fill
+            
+    pdf.ln(12)
+    
+    # التوقيعات والاعتمادات الرسمية أسفل التقرير
+    pdf.set_font('MainBold', size=9.5)
+    w_col = 60
+    pdf.cell(w_col, 6, ar("وكيل الشؤون الطلاب"), align='C')
+    pdf.cell(w_col, 6, ar("وكيل الشؤون التعليمية"), align='C')
+    pdf.cell(w_col, 6, ar("مدير المدرسة"), align='C', new_x='LMARGIN', new_y='NEXT')
+    
+    pdf.set_font('MainReg', size=9)
+    pdf.cell(w_col, 6, ar("صالح بن عبدالله الدعجاني"), align='C')
+    pdf.cell(w_col, 6, ar("محمد مبروك السيد"), align='C')
+    pdf.cell(w_col, 6, ar("إبراهيم بن موسى التميمي"), align='C', new_x='LMARGIN', new_y='NEXT')
+    
+    pdf.ln(4)
+    pdf.set_font('MainBold', size=9.5)
+    pdf.cell(0, 6, ar("المسؤول التقني والمنصة: محمد سامي السعيد"), align='C', new_x='LMARGIN', new_y='NEXT')
+    
+    return bytes(pdf.output())
 
 # ---------------------------------------------------------
-# 4. الواجهة الرئيسية والتنقل في التطبيق
+# 5. الواجهة الرئيسية والتنقل بين الصفحات
 # ---------------------------------------------------------
 
 st.markdown("""
@@ -324,12 +448,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-if SUPABASE_URL and SUPABASE_KEY:
-    st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
-else:
-    st.sidebar.warning("⚠️ يرجى إضافة مفاتيح Supabase في Secrets")
-
-# التحقق من حالة تسجيل الدخول للإدارة
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
@@ -339,8 +457,8 @@ menu = st.sidebar.radio(
 )
 
 if st.session_state["authenticated"]:
-    st.sidebar.success("🔑 تم تسجيل الدخول كإداري")
-    if st.sidebar.button("🔒 تسجيل الخروج"):
+    st.sidebar.divider()
+    if st.sidebar.button("🔒 تسجيل خروج الإدارة"):
         st.session_state["authenticated"] = False
         st.rerun()
 
@@ -372,9 +490,6 @@ TEACHERS_LIST = [
     "معلم آخر (أدخل الاسم)"
 ]
 
-# ---------------------------------------------------------
-# الصفحة 1: تسجيل رابط حصة (المعلم) - مفتوحة بدون كلمة مرور
-# ---------------------------------------------------------
 if menu == "📝 تسجيل رابط حصة (المعلم)":
     st.subheader("📝 نموذج إضافة رابط حصة افتراضية جديد")
     st.info("💡 اختر البيانات واضغط حفظ لإرسال الرابط مباشرة.")
@@ -418,13 +533,10 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
         else:
             success, msg = insert_record(teacher_name, day_name, lesson_date.strftime("%Y-%m-%d"), grade, section, period, zoom_link, subject)
             if success:
-                st.success(f"✅ تم حفظ رابط الحصة بنجاح في Supabase للمعلم ({teacher_name}) - {grade} ({section}) - {period}!")
+                st.success(f"✅ تم حفظ رابط الحصة بنجاح للمعلم ({teacher_name}) - {grade} ({section}) - {period}!")
             else:
                 st.error(f"⚠️ {msg}")
 
-# ---------------------------------------------------------
-# الصفحات المحمية بكلمة مرور (666666): التقرير والإدارة
-# ---------------------------------------------------------
 else:
     if not st.session_state["authenticated"]:
         st.subheader("🔒 منطقة محمية (خاصة بالإدارة والكنترول)")
@@ -486,12 +598,12 @@ else:
                 
                 st.divider()
                 
-                st.markdown("### 🖨️ خيارات الطباعة والتصدير عالية الجودة (PDF / Excel)")
+                st.markdown("### 🖨️ خيارات الطباعة والتصدير (PDF / Excel)")
                 
                 tab1, tab2, tab3 = st.tabs(["📄 طباعة التقرير العام الشامل", "🎯 طباعة تقرير فصل منفصل (PDF)", "📊 تصدير Excel"])
                 
                 with tab1:
-                    st.write("طباعة تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم بنفس خط التقرير الشامل:")
+                    st.write("طباعة تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم:")
                     pdf_bytes_all = generate_perfect_pdf_report(df, date_str, day_name_str, section_title="جميع الفصول")
                     st.download_button(
                         label="🖨️ تحميل التقرير الشامل لجميع الفصول (PDF)",
@@ -502,7 +614,7 @@ else:
                     )
                     
                 with tab2:
-                    st.write("اختر فصلاً محدداً لطباعة تقرير منفصل به فقط:")
+                    st.write("اختر فصلاً محداً لطباعة تقرير منفصل به فقط:")
                     target_sec = st.selectbox("اختر الفصل المراد طباعته:", ALL_SECTIONS, key="print_single_section")
                     
                     if 'section' in df.columns:
