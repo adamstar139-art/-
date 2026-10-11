@@ -155,14 +155,57 @@ def delete_record(record_id):
 # ---------------------------------------------------------
 # 3. دالة إنشاء تقرير PDF عالي الجودة ومطابق لخط التقرير الشامل
 # ---------------------------------------------------------
+
+def draw_thagher_logo(draw, cx, cy, scale=1.2):
+    navy = (26, 46, 90)
+    gold = (197, 160, 89)
+    
+    b_pts_outer = [
+        (cx - int(100*scale), cy - int(20*scale)),
+        (cx - int(10*scale), cy + int(40*scale)),
+        (cx, cy + int(50*scale)),
+        (cx + int(10*scale), cy + int(40*scale)),
+        (cx + int(100*scale), cy - int(20*scale)),
+        (cx + int(110*scale), cy - int(10*scale)),
+        (cx + int(10*scale), cy + int(55*scale)),
+        (cx, cy + int(65*scale)),
+        (cx - int(10*scale), cy + int(55*scale)),
+        (cx - int(110*scale), cy - int(10*scale)),
+    ]
+    draw.polygon(b_pts_outer, fill=navy)
+    
+    for offset, color in [(-15, navy), (-5, gold), (5, navy)]:
+        draw.line([
+            (cx - int(80*scale), cy - int(5*scale) + int(offset*scale)),
+            (cx - int(10*scale), cy + int(35*scale) + int(offset*scale))
+        ], fill=color, width=int(4*scale))
+        draw.line([
+            (cx + int(80*scale), cy - int(5*scale) + int(offset*scale)),
+            (cx + int(10*scale), cy + int(35*scale) + int(offset*scale))
+        ], fill=color, width=int(4*scale))
+        
+    draw.ellipse([cx - int(35*scale), cy - int(65*scale), cx - int(15*scale), cy - int(45*scale)], fill=navy)
+    draw.polygon([
+        (cx - int(25*scale), cy - int(42*scale)),
+        (cx - int(50*scale), cy - int(10*scale)),
+        (cx - int(5*scale), cy + int(10*scale)),
+    ], fill=navy)
+    
+    draw.ellipse([cx + int(15*scale), cy - int(65*scale), cx + int(35*scale), cy - int(45*scale)], fill=gold)
+    draw.polygon([
+        (cx + int(25*scale), cy - int(42*scale)),
+        (cx + int(50*scale), cy - int(10*scale)),
+        (cx + int(5*scale), cy + int(10*scale)),
+    ], fill=gold)
+
 def generate_perfect_pdf_report(df_records, selected_date, day_str, section_title=""):
     W, H = 2480, 3508 # A4 at 300 DPI
     img = Image.new('RGB', (W, H), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
     # البحث عن الخط الكوفي/النسخي المعتمد
-    kufi_bold = "/usr/share/fonts/truetype/noto/NotoKufiArabic-Bold.ttf"
-    kufi_reg = "/usr/share/fonts/truetype/noto/NotoKufiArabic-Regular.ttf"
+    kufi_bold = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
+    kufi_reg = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
     
     if not os.path.exists(kufi_bold):
         kufi_bold = "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf"
@@ -183,11 +226,11 @@ def generate_perfect_pdf_report(df_records, selected_date, day_str, section_titl
 
     # ترويسة التقرير
     y = 140
-    draw.text((W // 2, y), "المملكة العربية السعودية - وزارة التعليم", fill=(0, 108, 53), font=font_header_bold, anchor="mm", direction="rtl")
+    draw.text((W // 2, y), "المملكة العربية السعودية - وزارة التعليم", fill=(0, 108, 53), font=font_header_bold, anchor="mm")
     y += 85
-    draw.text((W // 2, y), "إدارة التعليم بمحافظة الرياض", fill=(70, 70, 70), font=font_sub, anchor="mm", direction="rtl")
+    draw.text((W // 2, y), "إدارة التعليم بمحافظة الرياض", fill=(70, 70, 70), font=font_sub, anchor="mm")
     y += 75
-    draw.text((W // 2, y), "مدرسة متوسطة الثغر النموذجية الأهلية", fill=(0, 108, 53), font=font_header_bold, anchor="mm", direction="rtl")
+    draw.text((W // 2, y), "مدرسة متوسطة الثغر النموذجية الأهلية", fill=(0, 108, 53), font=font_header_bold, anchor="mm")
 
     y += 80
     draw.line([120, y, W - 120, y], fill=(197, 160, 89), width=5)
@@ -199,7 +242,7 @@ def generate_perfect_pdf_report(df_records, selected_date, day_str, section_titl
         title_text += f" - ({section_title})"
     
     draw.rounded_rectangle([150, y, W - 150, y + 110], radius=18, fill=(240, 248, 242), outline=(0, 108, 53), width=4)
-    draw.text((W // 2, y + 55), title_text, fill=(0, 108, 53), font=font_title_bold, anchor="mm", direction="rtl")
+    draw.text((W // 2, y + 55), title_text, fill=(0, 108, 53), font=font_title_bold, anchor="mm")
 
     # إعداد جدول الحصص
     y_table = y + 170
@@ -213,7 +256,7 @@ def generate_perfect_pdf_report(df_records, selected_date, day_str, section_titl
     for i, h_text in enumerate(headers):
         w_col = col_widths[i]
         draw.rectangle([x_curr, y_table, x_curr + w_col, y_table + row_height], fill=(0, 108, 53), outline=(0, 80, 40), width=2)
-        draw.text((x_curr + w_col // 2, y_table + row_height // 2), h_text, fill=(255, 255, 255), font=font_tbl_head, anchor="mm", direction="rtl")
+        draw.text((x_curr + w_col // 2, y_table + row_height // 2), h_text, fill=(255, 255, 255), font=font_tbl_head, anchor="mm")
         x_curr += w_col
 
     y_curr = y_table + row_height
@@ -221,7 +264,7 @@ def generate_perfect_pdf_report(df_records, selected_date, day_str, section_titl
     if df_records.empty:
         total_w = sum(col_widths)
         draw.rectangle([x_start, y_curr, x_start + total_w, y_curr + 120], fill=(255, 255, 255), outline=(200, 200, 200), width=2)
-        draw.text((W // 2, y_curr + 60), "لا توجد حصص مسجلة لهذا اليوم / الفصل", fill=(100, 100, 100), font=font_tbl_body, anchor="mm", direction="rtl")
+        draw.text((W // 2, y_curr + 60), "لا توجد حصص مسجلة لهذا اليوم / الفصل", fill=(100, 100, 100), font=font_tbl_body, anchor="mm")
         y_curr += 120
     else:
         for idx, row in df_records.iterrows():
@@ -239,7 +282,7 @@ def generate_perfect_pdf_report(df_records, selected_date, day_str, section_titl
                 w_col = col_widths[i]
                 draw.rectangle([x_curr, y_curr, x_curr + w_col, y_curr + row_height], fill=bg_color, outline=(210, 220, 212), width=2)
                 text_color = (0, 102, 204) if i == 5 else (30, 30, 30)
-                draw.text((x_curr + w_col // 2, y_curr + row_height // 2), val, fill=text_color, font=font_tbl_body, anchor="mm", direction="rtl")
+                draw.text((x_curr + w_col // 2, y_curr + row_height // 2), val, fill=text_color, font=font_tbl_body, anchor="mm")
                 x_curr += w_col
             y_curr += row_height
 
@@ -252,16 +295,16 @@ def generate_perfect_pdf_report(df_records, selected_date, day_str, section_titl
     x2 = 120 + w_sec + w_sec // 2
     x3 = 120 + 2 * w_sec + w_sec // 2
 
-    draw.text((x1, y_footer), "وكيل الشؤون الطلاب", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
-    draw.text((x2, y_footer), "وكيل الشؤون التعليمية", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
-    draw.text((x3, y_footer), "مدير المدرسة", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
+    draw.text((x1, y_footer), "وكيل الشؤون الطلاب", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
+    draw.text((x2, y_footer), "وكيل الشؤون التعليمية", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
+    draw.text((x3, y_footer), "مدير المدرسة", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
 
-    draw.text((x1, y_footer + 65), "صالح بن عبدالله الدعجاني", fill=(40, 40, 40), font=font_footer_r, anchor="mm", direction="rtl")
-    draw.text((x2, y_footer + 65), "محمد مبروك السيد", fill=(40, 40, 40), font=font_footer_r, anchor="mm", direction="rtl")
-    draw.text((x3, y_footer + 65), "إبراهيم بن موسى التميمي", fill=(40, 40, 40), font=font_footer_r, anchor="mm", direction="rtl")
+    draw.text((x1, y_footer + 65), "صالح بن عبدالله الدعجاني", fill=(40, 40, 40), font=font_footer_r, anchor="mm")
+    draw.text((x2, y_footer + 65), "محمد مبروك السيد", fill=(40, 40, 40), font=font_footer_r, anchor="mm")
+    draw.text((x3, y_footer + 65), "إبراهيم بن موسى التميمي", fill=(40, 40, 40), font=font_footer_r, anchor="mm")
 
     y_footer_2 = y_footer + 160
-    draw.text((W // 2, y_footer_2), "المسؤول التقني والمنصة: محمد سامي السعيد", fill=(0, 108, 53), font=font_footer_b, anchor="mm", direction="rtl")
+    draw.text((W // 2, y_footer_2), "المسؤول التقني والمنصة: محمد سامي السعيد", fill=(0, 108, 53), font=font_footer_b, anchor="mm")
 
     pdf_bytes_io = io.BytesIO()
     img.save(pdf_bytes_io, format='PDF', resolution=300.0)
