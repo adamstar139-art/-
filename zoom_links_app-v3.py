@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import sqlalchemy as sa
+import requests
 from datetime import date, datetime
 from fpdf import FPDF
 import io
@@ -16,7 +16,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# تطبيق تنسيقات CSS للهوية السعودية
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
@@ -76,88 +75,81 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. ربط قاعدة البيانات الدائمة (Supabase PostgreSQL / SQLite)
+# 2. إعدادات وقاعدة بيانات Supabase
 # ---------------------------------------------------------
-# يقرأ رابط الاتصال بقاعدة بيانات Supabase من Streamlit Secrets أو المتغيرات البيئية
-# صيغة رابط Supabase:
-# postgresql://postgres:[PASSWORD]@db.looldhswootseeqltohg.supabase.co:5432/postgres
 
-DATABASE_URL = None
+SUPABASE_URL = ""
+SUPABASE_KEY = ""
 
-if "SUPABASE_DB_URL" in st.secrets:
-    DATABASE_URL = st.secrets["SUPABASE_DB_URL"]
-elif "DATABASE_URL" in os.environ:
-    DATABASE_URL = os.environ["DATABASE_URL"]
+if "supabase" in st.secrets:
+    SUPABASE_URL = st.secrets["supabase"].get("url", "")
+    SUPABASE_KEY = st.secrets["supabase"].get("key", "")
+elif "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+else:
+    SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-# إذا لم يُحدد رابط Supabase، يتم استخدام قاعدة بيانات SQLite محلية مؤقتاً
-if not DATABASE_URL:
-    DATABASE_URL = "sqlite:///zoom_links.db"
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"
+}
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
-
-def init_db():
-    is_sqlite = DATABASE_URL.startswith("sqlite")
-    id_col = "INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "SERIAL PRIMARY KEY"
-    
-    create_sql = f'''
-        CREATE TABLE IF NOT EXISTS zoom_records (
-            id {id_col},
-            teacher_name TEXT NOT NULL,
-            day_name TEXT NOT NULL,
-            lesson_date DATE NOT NULL,
-            grade TEXT NOT NULL,
-            section TEXT NOT NULL,
-            period TEXT NOT NULL,
-            zoom_link TEXT NOT NULL,
-            subject TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    '''
-    with engine.begin() as conn:
-        conn.execute(sa.text(create_sql))
-
-init_db()
+TABLE_NAME = "zoom_records"
 
 def insert_record(teacher, day, date_val, grade, section, period, link, subject):
-    insert_sql = sa.text('''
-        INSERT INTO zoom_records (teacher_name, day_name, lesson_date, grade, section, period, zoom_link, subject)
-        VALUES (:teacher, :day, :date_val, :grade, :section, :period, :link, :subject)
-    ''')
-    with engine.begin() as conn:
-        conn.execute(insert_sql, {
-            "teacher": teacher,
-            "day": day,
-            "date_val": date_val,
-            "grade": grade,
-            "section": section,
-            "period": period,
-            "link": link,
-            "subject": subject
-        })
+    endpoint = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    payload = {
+        "teacher_name": teacher,
+        "day_name": day,
+        "lesson_date": date_val,
+        "grade": grade,
+        "section": section,
+        "period": period,
+        "zoom_link": link,
+        "subject": subject
+    }
+    try:
+        response = requests.post(endpoint, json=payload, headers=HEADERS, timeout=10)
+        if response.status_code in [200, 201]:
+            return True, "تم الحفظ بنجاح في Supabase"
+        else:
+            return False, f"خطأ من الخادم ({response.status_code}): {response.text}"
+    except Exception as e:
+        return False, f"تعذر الاتصال بالمشروع: {str(e)}"
 
 def fetch_records(filter_date=None, filter_grade=None):
-    query = "SELECT id, teacher_name, day_name, lesson_date, grade, section, period, zoom_link, subject FROM zoom_records WHERE 1=1"
-    params = {}
+    endpoint = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    params = {
+        "select": "id,teacher_name,day_name,lesson_date,grade,section,period,zoom_link,subject",
+        "order": "lesson_date.desc,period.asc"
+    }
     if filter_date:
-        query += " AND lesson_date = :filter_date"
-        params["filter_date"] = filter_date
+        params["lesson_date"] = f"eq.{filter_date}"
     if filter_grade and filter_grade != "الكل":
-        query += " AND grade = :filter_grade"
-        params["filter_grade"] = filter_grade
-    
-    query += " ORDER BY lesson_date DESC, period ASC, grade ASC, section ASC"
-    
-    with engine.connect() as conn:
-        df = pd.read_sql_query(sa.text(query), conn, params=params)
-    return df
+        params["grade"] = f"eq.{filter_grade}"
+        
+    try:
+        response = requests.get(endpoint, headers=HEADERS, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return pd.DataFrame(data)
+        else:
+            return pd.DataFrame(columns=['id', 'teacher_name', 'day_name', 'lesson_date', 'grade', 'section', 'period', 'zoom_link', 'subject'])
+    except Exception:
+        return pd.DataFrame(columns=['id', 'teacher_name', 'day_name', 'lesson_date', 'grade', 'section', 'period', 'zoom_link', 'subject'])
 
 def delete_record(record_id):
-    del_sql = sa.text("DELETE FROM zoom_records WHERE id = :record_id")
-    with engine.begin() as conn:
-        conn.execute(del_sql, {"record_id": record_id})
+    endpoint = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    params = {"id": f"eq.{record_id}"}
+    try:
+        response = requests.delete(endpoint, headers=HEADERS, params=params, timeout=10)
+        return response.status_code in [200, 204]
+    except Exception:
+        return False
 
 # ---------------------------------------------------------
 # 3. دالة إنشاء تقرير PDF برئاسة الهوية السعودية
@@ -212,13 +204,13 @@ def generate_pdf_report(df, selected_date, day_str):
         fill = False
         for _, row in df.iterrows():
             pdf.set_fill_color(240, 245, 240) if fill else pdf.set_fill_color(255, 255, 255)
-            pdf.cell(col_widths[0], 8, str(row['teacher_name']), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[1], 8, str(row['subject'] or '-'), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[2], 8, str(row['grade']), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[3], 8, str(row['section']), border=1, align='C', fill=fill)
-            pdf.cell(col_widths[4], 8, str(row['period']), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[0], 8, str(row.get('teacher_name', '-')), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[1], 8, str(row.get('subject') or '-'), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[2], 8, str(row.get('grade', '-')), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[3], 8, str(row.get('section', '-')), border=1, align='C', fill=fill)
+            pdf.cell(col_widths[4], 8, str(row.get('period', '-')), border=1, align='C', fill=fill)
             link_display = "رابط الحصة"
-            pdf.cell(col_widths[5], 8, link_display, border=1, align='C', fill=fill, link=str(row['zoom_link']))
+            pdf.cell(col_widths[5], 8, link_display, border=1, align='C', fill=fill, link=str(row.get('zoom_link', '')))
             pdf.ln()
             fill = not fill
             
@@ -239,15 +231,11 @@ st.markdown("""
     <h2>إدارة التعليم بمحافظة جدة</h2>
     <h3>مدرسة متوسطة الثغر النموذجية الأهلية</h3>
     <hr style="border: 0; height: 1px; background: #C5A059; margin: 10px 0;">
-    <p style="margin: 0; font-size: 18px; font-weight: 700;">منصة تسجيل ورصد روابط حصص الزوم (Supabase Database)</p>
+    <p style="margin: 0; font-size: 18px; font-weight: 700;">منصة تسجيل ورصد روابط حصص الزوم (Supabase Cloud Sync)</p>
 </div>
 """, unsafe_allow_html=True)
 
-# تنبيه بحالة نوع قاعدة البيانات
-if DATABASE_URL.startswith("sqlite"):
-    st.sidebar.warning("⚠️ يعمل النظام حالياً بنمط التخزين المحلي (SQLite). للحفظ الدائم، يُرجى إضافة رابط Supabase في Secrets.")
-else:
-    st.sidebar.success("⚡ النظام متصل بنجاح بقاعدة بيانات Supabase السحابية الدائمة!")
+st.sidebar.success("⚡ النظام متصل بقاعدة بيانات Supabase")
 
 menu = st.sidebar.radio(
     "📌 القائمة الرئيسية",
@@ -278,48 +266,52 @@ TEACHERS_LIST = [
 
 if menu == "📝 تسجيل رابط حصة (المعلم)":
     st.subheader("📝 نموذج إضافة رابط حصة افتراضية جديد")
-    st.info("يرجى اختيار اسم المعلم واليوم والتاريخ والصف والفصل ثم لصق رابط الزوم.")
+    st.info("💡 عند تغيير الصف الدراسي، ستتحدث قائمة الفصول المتاحة تلقائياً بلمسة واحدة.")
     
-    with st.form("teacher_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        teacher_select = st.selectbox("اسم المعلم:", TEACHERS_LIST)
+        if teacher_select == "معلم آخر (أدخل الاسم)":
+            teacher_name = st.text_input("أدخل اسم المعلم الثلاثي:")
+        else:
+            teacher_name = teacher_select
+            
+        day_name = st.selectbox("اليوم:", DAYS_LIST)
+        lesson_date = st.date_input("تاريخ الحصة:", value=date.today())
+        subject = st.text_input("المادة الدراسية (مثال: المهارات الرقمية):")
         
-        with col1:
-            teacher_select = st.selectbox("اسم المعلم:", TEACHERS_LIST)
-            if teacher_select == "معلم آخر (أدخل الاسم)":
-                teacher_name = st.text_input("أدخل اسم المعلم الثلاثي:")
-            else:
-                teacher_name = teacher_select
-                
-            day_name = st.selectbox("اليوم:", DAYS_LIST)
-            lesson_date = st.date_input("تاريخ الحصة:", value=date.today())
-            subject = st.text_input("المادة الدراسية (مثال: المهارات الرقمية):")
-            
-        with col2:
-            grade = st.selectbox("الصف الدراسي:", GRADES_LIST)
-            
-            if grade == "الأول متوسط":
-                section_options = ["أول أول", "أول ثاني"]
-            elif grade == "الثاني متوسط":
-                section_options = ["ثاني أول", "ثاني ثاني", "ثاني ثالث"]
-            elif grade == "الثالث متوسط":
-                section_options = ["ثالث أول", "ثالث ثاني", "ثالث ثالث"]
-            else:
-                section_options = ["1", "2", "3"]
-                
-            section = st.selectbox("الفصل / الشعبة:", section_options)
-            period = st.selectbox("رقم الحصة:", PERIODS_LIST)
-            zoom_link = st.text_input("رابط الزوم (Zoom Link):", placeholder="ألصق رابط الحصة هنا")
-            
-        submit_button = st.form_submit_button("💾 حفظ وإرسال الرابط")
+    with col2:
+        # اختيار الصف بدون st.form ليعمل الربط الديناميكي الفوري للفصول
+        grade = st.selectbox("الصف الدراسي:", GRADES_LIST, key="grade_selectbox")
         
-        if submit_button:
-            if not teacher_name or not zoom_link:
-                st.error("⚠️ يرجى التأكد من اختيار/كتابة اسم المعلم ولصق رابط الزوم كاملاً!")
-            elif not zoom_link.startswith("http"):
-                st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
+        # ربط الفصول المتاحة بناءً على الصف المختار ديناميكياً
+        if grade == "الأول متوسط":
+            section_options = ["أول أول", "أول ثاني"]
+        elif grade == "الثاني متوسط":
+            section_options = ["ثاني أول", "ثاني ثاني", "ثاني ثالث"]
+        elif grade == "الثالث متوسط":
+            section_options = ["ثالث أول", "ثالث ثاني", "ثالث ثالث"]
+        else:
+            section_options = ["1", "2", "3"]
+            
+        section = st.selectbox("الفصل / الشعبة:", section_options, key="section_selectbox")
+        period = st.selectbox("رقم الحصة:", PERIODS_LIST)
+        zoom_link = st.text_input("رابط الزوم (Zoom Link):", placeholder="ألصق رابط الحصة هنا")
+        
+    submit_button = st.button("💾 حفظ وإرسال الرابط إلى Supabase", use_container_width=True)
+    
+    if submit_button:
+        if not teacher_name or not zoom_link:
+            st.error("⚠️ يرجى التأكد من اختيار/كتابة اسم المعلم ولصق رابط الزوم كاملاً!")
+        elif not zoom_link.startswith("http"):
+            st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
+        else:
+            success, msg = insert_record(teacher_name, day_name, lesson_date.strftime("%Y-%m-%d"), grade, section, period, zoom_link, subject)
+            if success:
+                st.success(f"✅ تم حفظ رابط الحصة بنجاح في Supabase للمعلم ({teacher_name}) - {grade} ({section}) - {period}!")
             else:
-                insert_record(teacher_name, day_name, lesson_date.strftime("%Y-%m-%d"), grade, section, period, zoom_link, subject)
-                st.success(f"✅ تم حفظ رابط الحصة بنجاح في قاعدة البيانات المعلم ({teacher_name}) - {grade} ({section}) - {period}!")
+                st.error(f"⚠️ {msg}")
 
 elif menu == "📊 التقرير اليومي ولوحة التحكم (الإدارة)":
     st.subheader("📊 جدول ورصد روابط الحصص اليومية")
@@ -338,17 +330,18 @@ elif menu == "📊 التقرير اليومي ولوحة التحكم (الإد
     st.markdown(f"### 📋 حصص يوم {day_name_str} الموافق ({date_str})")
     
     if df.empty:
-        st.warning("ℹ️ لا توجد روابط حصص مسجلة لهذا التاريخ حتى الآن.")
+        st.warning("ℹ️ لا توجد روابط حصص مسجلة لهذا التاريخ في Supabase حتى الآن.")
     else:
         c1, c2, c3 = st.columns(3)
         c1.metric("إجمالي الحصص المسجلة", len(df))
-        c2.metric("عدد المعلمين المشاركين", df['teacher_name'].nunique())
-        c3.metric("الصفوف المكتملة", df['grade'].nunique())
+        c2.metric("عدد المعلمين المشاركين", df['teacher_name'].nunique() if 'teacher_name' in df.columns else 0)
+        c3.metric("الصفوف المكتملة", df['grade'].nunique() if 'grade' in df.columns else 0)
         
         st.divider()
         
-        display_df = df[['teacher_name', 'subject', 'grade', 'section', 'period', 'zoom_link']].copy()
-        display_df.columns = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الزوم']
+        cols_to_show = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period', 'zoom_link'] if c in df.columns]
+        display_df = df[cols_to_show].copy()
+        display_df.columns = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الزوم'][:len(cols_to_show)]
         
         st.dataframe(display_df, use_container_width=True)
         
@@ -391,13 +384,15 @@ elif menu == "⚙️ إدارة وتعديل السجلات":
     else:
         st.write("اختر السجل الذي ترغب في حذفه أو تعديله:")
         for idx, row in df_mgt.iterrows():
-            with st.expander(f"📌 {row['teacher_name']} | {row['grade']} - {row['section']} | {row['period']}"):
-                st.write(f"**المادة:** {row['subject'] or 'غير محددة'}")
-                st.write(f"**الرابط:** [{row['zoom_link']}]({row['zoom_link']})")
-                if st.button(f"❌ حذف هذا السجل (رقم {row['id']})", key=f"del_{row['id']}"):
-                    delete_record(row['id'])
-                    st.success("تم حذف السجل بنجاح!")
-                    st.rerun()
+            with st.expander(f"📌 {row.get('teacher_name', 'معلم')} | {row.get('grade', '-')} - {row.get('section', '-')} | {row.get('period', '-')}"):
+                st.write(f"**المادة:** {row.get('subject') or 'غير محددة'}")
+                st.write(f"**الرابط:** [{row.get('zoom_link')}]({row.get('zoom_link')})")
+                if st.button(f"❌ حذف هذا السجل (رقم {row.get('id')})", key=f"del_{row.get('id')}"):
+                    if delete_record(row.get('id')):
+                        st.success("تم حذف السجل بنجاح من Supabase!")
+                        st.rerun()
+                    else:
+                        st.error("تعذر حذف السجل من Supabase.")
 
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: #777; font-size: 13px;'>تطوير نظام إدارة التعليم | متوسطة الثغر النموذجية الأهلية - بجدة © 1448 هـ</p>", unsafe_allow_html=True)
