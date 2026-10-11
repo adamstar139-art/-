@@ -708,6 +708,24 @@ def arabic_day_name(d):
 GRADES_LIST = ["الأول متوسط", "الثاني متوسط", "الثالث متوسط"]
 PERIODS_LIST = ["الحصة الأولى", "الحصة الثانية", "الحصة الثالثة", "الحصة الرابعة", "الحصة الخامسة", "الحصة السادسة", "الحصة السابعة"]
 
+# ترتيب رقم الحصة حسب تسلسلها المنطقي (الأولى ← السابعة) وليس أبجديًا
+_PERIOD_ORDER = {name: i for i, name in enumerate(PERIODS_LIST)}
+
+def sort_by_period(df):
+    """يرتّب حصص الجدول بحسب تسلسل الحصص (الأولى ثم الثانية ...)."""
+    if df is None or df.empty or 'period' not in df.columns:
+        return df
+    out = df.copy()
+    # أي قيمة غير معروفة توضع في النهاية
+    out['_porder'] = out['period'].map(lambda p: _PERIOD_ORDER.get(str(p), 999))
+    sort_cols = ['_porder']
+    if 'grade' in out.columns:
+        sort_cols.append('grade')
+    if 'section' in out.columns:
+        sort_cols.append('section')
+    out = out.sort_values(by=sort_cols, kind='stable').drop(columns=['_porder']).reset_index(drop=True)
+    return out
+
 ALL_SECTIONS = [
     "أول أول", "أول ثاني",
     "ثاني أول", "ثاني ثاني", "ثاني ثالث",
@@ -819,6 +837,8 @@ else:
                 filter_grade=selected_grade,
                 filter_section=selected_section_filter
             )
+            # ترتيب الحصص حسب تسلسلها (الأولى ← السابعة)
+            df = sort_by_period(df)
             
             day_name_str = arabic_day_name(selected_date)
             
