@@ -117,7 +117,7 @@ def create_thaghar_logo_file():
             pass
 
     # 2) شعار مرفق بجانب التطبيق (احتياطي)
-    for cand in ("school_logo.png", "logo.png", "thaghar_logo.png"):
+    for cand in ("school_logo.png", "logo.png", "thaghr_logo.png"):
         p = os.path.join(_APP_DIR, cand)
         if os.path.exists(p):
             _LOGO_CACHE_PATH = p
@@ -310,6 +310,24 @@ def delete_record(record_id):
         return False
 
 # ---------------------------------------------------------
+# أوقات الحصص الرسمية (مستخرجة من الجدول الزمني للمدرسة)
+# تُشتق تلقائيًا من اسم الحصة وتظهر في التقارير (PDF / HTML / الشاشة / Excel)
+# ---------------------------------------------------------
+PERIOD_TIMES = {
+    "الحصة الأولى": "6:30 - 7:15",
+    "الحصة الثانية": "7:15 - 8:00",
+    "الحصة الثالثة": "8:00 - 8:45",
+    "الحصة الرابعة": "9:05 - 9:50",
+    "الحصة الخامسة": "9:50 - 10:35",
+    "الحصة السادسة": "10:35 - 11:20",
+    "الحصة السابعة": "11:20 - 12:05",
+}
+
+def get_period_time(period):
+    """يعيد وقت الحصة (بداية - نهاية) المطابق لاسم الحصة، أو '-' إن لم يوجد."""
+    return PERIOD_TIMES.get(str(period).strip(), "-")
+
+# ---------------------------------------------------------
 # 4. دالة إنشاء تقرير PDF احترافي بنسب 100% بدون تداخل خطوط
 # ---------------------------------------------------------
 
@@ -450,9 +468,10 @@ def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
     pdf.cell(0, 9, ar(summary), border=1, align='C', fill=True, new_x='LMARGIN', new_y='NEXT')
     pdf.ln(5)
 
-    # جدول من اليمين إلى اليسار (RTL)
-    col_widths = [40, 24, 26, 30, 32, 40]
-    headers_rtl = ['رابط الحصة', 'الحصة', 'الفصل', 'الصف', 'المادة', 'المعلم']
+    # جدول من اليمين إلى اليسار (RTL) — يُقرأ: المعلم ← المادة ← الصف ← الفصل ← الحصة ← وقت الحصة ← الرابط
+    # (إضافة عمود "وقت الحصة" بجانب رقم الحصة)
+    col_widths = [34, 24, 20, 22, 26, 30, 36]
+    headers_rtl = ['رابط الحصة', 'وقت الحصة', 'الحصة', 'الفصل', 'الصف', 'المادة', 'المعلم']
     table_w = sum(col_widths)
     x_start = (210 - table_w) / 2
 
@@ -494,11 +513,14 @@ def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
             pdf.set_text_color(40, 40, 40)
             pdf.set_font('MainReg', size=9.5)
 
-            pdf.cell(col_widths[1], 8.5, ar(str(row.get('period', '-'))), border=1, align='C', fill=True)
-            pdf.cell(col_widths[2], 8.5, ar(str(row.get('section', '-'))), border=1, align='C', fill=True)
-            pdf.cell(col_widths[3], 8.5, ar(str(row.get('grade', '-'))), border=1, align='C', fill=True)
-            pdf.cell(col_widths[4], 8.5, ar(str(row.get('subject') or '-')), border=1, align='C', fill=True)
-            pdf.cell(col_widths[5], 8.5, ar(str(row.get('teacher_name', '-'))), border=1, align='C', fill=True)
+            period_val = str(row.get('period', '-'))
+            # العمود 1: وقت الحصة (أرقام لاتينية تُعرض كما هي دون عكس)
+            pdf.cell(col_widths[1], 8.5, get_period_time(period_val), border=1, align='C', fill=True)
+            pdf.cell(col_widths[2], 8.5, ar(period_val), border=1, align='C', fill=True)
+            pdf.cell(col_widths[3], 8.5, ar(str(row.get('section', '-'))), border=1, align='C', fill=True)
+            pdf.cell(col_widths[4], 8.5, ar(str(row.get('grade', '-'))), border=1, align='C', fill=True)
+            pdf.cell(col_widths[5], 8.5, ar(str(row.get('subject') or '-')), border=1, align='C', fill=True)
+            pdf.cell(col_widths[6], 8.5, ar(str(row.get('teacher_name', '-'))), border=1, align='C', fill=True)
             pdf.ln()
             fill = not fill
 
@@ -542,10 +564,10 @@ def generate_html_report(df, selected_date, day_str, section_title=""):
     n_teachers = 0 if df is None or df.empty or 'teacher_name' not in df.columns else int(df['teacher_name'].nunique())
     n_grades = 0 if df is None or df.empty or 'grade' not in df.columns else int(df['grade'].nunique())
 
-    # بناء صفوف الجدول (مع تأمين النص ضد أي محتوى خطير)
+    # بناء صفوف الجدول (ترتيب الأعمدة من اليمين إلى اليسار: المعلم ثم ... ثم الرابط)
     rows_html = ""
     if df is None or df.empty:
-        rows_html = ('<tr><td colspan="6" class="empty">لا توجد حصص مسجلة لهذا اليوم / الفصل</td></tr>')
+        rows_html = ('<tr><td colspan="7" class="empty">لا توجد حصص مسجلة لهذا اليوم / الفصل</td></tr>')
     else:
         for _, row in df.iterrows():
             zoom_url = str(row.get('zoom_link', '') or '')
@@ -559,14 +581,16 @@ def generate_html_report(df, selected_date, day_str, section_title=""):
             grade = _html.escape(str(row.get('grade', '-')))
             section = _html.escape(str(row.get('section', '-')))
             period = _html.escape(str(row.get('period', '-')))
+            period_time = _html.escape(get_period_time(row.get('period', '')))
             rows_html += (
                 "<tr>"
-                f"<td class='c-link'>{link_cell}</td>"
-                f"<td>{period}</td>"
-                f"<td>{section}</td>"
-                f"<td>{grade}</td>"
-                f"<td>{subject}</td>"
                 f"<td class='c-teacher'>{teacher}</td>"
+                f"<td>{subject}</td>"
+                f"<td>{grade}</td>"
+                f"<td>{section}</td>"
+                f"<td>{period}</td>"
+                f"<td class='c-time'>{period_time}</td>"
+                f"<td class='c-link'>{link_cell}</td>"
                 "</tr>"
             )
 
@@ -596,11 +620,12 @@ def generate_html_report(df, selected_date, day_str, section_title=""):
   .subbar {{ background:#C5A059; color:#fff; text-align:center; font-weight:700; font-size:13px; padding:7px; border-radius:5px; margin-top:6px; }}
   .summary {{ display:flex; justify-content:center; gap:28px; flex-wrap:wrap; background:#f0f8f2; border:1px solid #C5A059; border-radius:6px; padding:12px; margin:16px 0; color:#004D25; font-weight:700; font-size:14px; }}
   .summary span b {{ color:#006C35; }}
-  table {{ width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }}
+  table {{ width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; direction:rtl; }}
   thead th {{ background:#006C35; color:#fff; padding:11px 8px; border:1px solid #004D25; font-weight:700; }}
   tbody td {{ padding:9px 8px; border:1px solid #d6dcd6; text-align:center; }}
   tbody tr:nth-child(even) {{ background:#f4f9f5; }}
   .c-teacher {{ font-weight:600; }}
+  .c-time {{ font-weight:700; color:#004D25; direction:ltr; }}
   a.zoom {{ display:inline-block; background:#006C35; color:#fff; text-decoration:none; padding:5px 14px; border-radius:5px; font-weight:700; font-size:13px; }}
   a.zoom:hover {{ background:#004D25; }}
   .nolink {{ color:#aaa; }}
@@ -636,8 +661,8 @@ def generate_html_report(df, selected_date, day_str, section_title=""):
     <table>
       <thead>
         <tr>
-          <th>رابط الحصة</th><th>الحصة</th><th>الفصل</th>
-          <th>الصف</th><th>المادة</th><th>المعلم</th>
+          <th>المعلم</th><th>المادة</th><th>الصف</th><th>الفصل</th>
+          <th>الحصة</th><th>وقت الحصة</th><th>رابط الحصة</th>
         </tr>
       </thead>
       <tbody>
@@ -650,7 +675,7 @@ def generate_html_report(df, selected_date, day_str, section_title=""):
       <div class="box"><div class="role">مدير المدرسة</div><div class="line"></div><div class="name">إبراهيم بن موسى التميمي</div></div>
     </div>
     <div class="tech">المسؤول التقني والمنصة: محمد سامي السعيد</div>
-    <div class="foot">متوسطة الثغر النموذجية الأهلية — الرياض &nbsp;|&nbsp; تاريخ الإصدار: {gen_time}</div>
+    <div class="foot">متوسطة الثغر النموذجية الأهلية — الرياض&nbsp;&nbsp;|&nbsp;&nbsp;تاريخ الإصدار: {gen_time}</div>
   </div>
 </body>
 </html>"""
@@ -783,6 +808,8 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
             
         section = st.selectbox("الفصل / الشعبة:", section_options, key="section_selectbox")
         period = st.selectbox("رقم الحصة:", PERIODS_LIST)
+        # عرض وقت الحصة تلقائيًا حسب الجدول الزمني للمدرسة
+        st.text_input("وقت الحصة (تلقائي حسب الجدول):", value=get_period_time(period), disabled=True)
         zoom_link = st.text_input("رابط الزوم (Zoom Link):", placeholder="ألصق رابط الحصة هنا")
         
     submit_button = st.button("💾 حفظ وإرسال الرابط إلى Supabase", use_container_width=True)
@@ -857,6 +884,10 @@ else:
                 cols_to_show = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period', 'zoom_link'] if c in df.columns]
                 display_df = df[cols_to_show].copy()
                 display_df.columns = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الزوم'][:len(cols_to_show)]
+                # إضافة عمود "وقت الحصة" (يُشتق تلقائيًا من رقم الحصة)
+                if 'الحصة' in display_df.columns:
+                    _pos = display_df.columns.get_loc('الحصة') + 1
+                    display_df.insert(_pos, 'وقت الحصة', display_df['الحصة'].map(get_period_time))
                 
                 st.dataframe(display_df, use_container_width=True)
                 
@@ -890,7 +921,7 @@ else:
                             mime="text/html",
                             use_container_width=True
                         )
-                        st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
+                        st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
                     
                 with tab2:
                     st.write("اختر فصلاً محداً لطباعة تقرير منفصل به فقط:")
@@ -928,7 +959,7 @@ else:
                             mime="text/html",
                             use_container_width=True
                         )
-                        st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
+                        st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
                     
                 with tab3:
                     st.write("تصدير الجدول إلى ملف Excel للتعديل أو الأرشفة:")
@@ -958,8 +989,9 @@ else:
             else:
                 st.write("اختر السجل الذي ترغب في حذفه أو تعديله:")
                 for idx, row in df_mgt.iterrows():
-                    with st.expander(f"📌 {row.get('teacher_name', 'معلم')} | {row.get('grade', '-')} - {row.get('section', '-')} | {row.get('period', '-')}"):
+                    with st.expander(f"📌 {row.get('teacher_name', 'معلم')} | {row.get('grade', '-')} - {row.get('section', '-')} | {row.get('period', '-')} | {get_period_time(row.get('period', ''))}"):
                         st.write(f"**المادة:** {row.get('subject') or 'غير محددة'}")
+                        st.write(f"**وقت الحصة:** {get_period_time(row.get('period', ''))}")
                         st.write(f"**الرابط:** [{row.get('zoom_link')}]({row.get('zoom_link')})")
                         if st.button(f"❌ حذف هذا السجل (رقم {row.get('id')})", key=f"del_{row.get('id')}"):
                             if delete_record(row.get('id')):
