@@ -155,7 +155,7 @@ ARABIC_MAP = {
     'ن': ('ﻥ', 'ﻧ', 'ﻨ', 'ﻦ'),
     'ه': ('ﻩ', 'ﻫ', 'ﻬ', 'ﻪ'),
     'و': ('ﻭ', 'ﻭ', 'ﻮ', 'ﻮ'),
-    'ي': ('ﻯ', 'ﻳ', 'ﻴ', 'ﻰ'),
+    'ي': ('ﻱ', 'ﻳ', 'ﻴ', 'ﻰ'),
     'ى': ('ﻱ', 'ﻱ', 'ﻲ', 'ﻲ'),
     'ة': ('ﺓ', 'ﺓ', 'ﺔ', 'ﺔ'),
     'ء': ('ﺀ', 'ﺀ', 'ﺀ', 'ﺀ'),
@@ -272,6 +272,29 @@ def insert_record(teacher, day, date_val, grade, section, period, link, subject)
         response = requests.post(endpoint, json=payload, headers=HEADERS, timeout=10)
         if response.status_code in [200, 201]:
             return True, "تم الحفظ بنجاح في Supabase"
+        else:
+            return False, f"خطأ من الخادم ({response.status_code}): {response.text}"
+    except Exception as e:
+        return False, f"تعذر الاتصال بالمشروع: {str(e)}"
+
+def update_record(record_id, teacher, day, date_val, grade, section, period, link, subject):
+    """يحدّث حصة مسجّلة قائمة في Supabase (حسب رقم السجل id)."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    params = {"id": f"eq.{record_id}"}
+    payload = {
+        "teacher_name": teacher,
+        "day_name": day,
+        "lesson_date": date_val,
+        "grade": grade,
+        "section": section,
+        "period": period,
+        "zoom_link": link,
+        "subject": subject
+    }
+    try:
+        response = requests.patch(endpoint, json=payload, headers=HEADERS, params=params, timeout=10)
+        if response.status_code in [200, 204]:
+            return True, "تم تحديث الحصة بنجاح"
         else:
             return False, f"خطأ من الخادم ({response.status_code}): {response.text}"
     except Exception as e:
@@ -554,7 +577,6 @@ def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
 
     return bytes(pdf.output())
 
-
 def generate_html_report(df, selected_date, day_str, section_title=""):
     """ينشئ تقرير HTML مستقل بالكامل (RTL) مع الشعار المضمّن وتنسيق احترافي قابل للطباعة."""
     logo_uri = ("data:image/png;base64," + _LOGO_B64) if _LOGO_B64 else ""
@@ -776,61 +798,145 @@ TEACHERS_LIST = [
 ]
 
 if menu == "📝 تسجيل رابط حصة (المعلم)":
-    st.subheader("📝 نموذج إضافة رابط حصة افتراضية جديد")
-    st.info("💡 اختر البيانات واضغط حفظ لإرسال الرابط مباشرة.")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        teacher_select = st.selectbox("اسم المعلم:", TEACHERS_LIST)
-        if teacher_select == "معلم آخر (أدخل الاسم)":
-            teacher_name = st.text_input("أدخل اسم المعلم الثلاثي:")
-        else:
-            teacher_name = teacher_select
-            
-        lesson_date = st.date_input("تاريخ الحصة:", value=date.today())
-        # يُشتق اسم اليوم تلقائيًا من التاريخ لضمان التطابق
-        day_name = arabic_day_name(lesson_date)
-        st.text_input("اليوم (تلقائي حسب التاريخ):", value=day_name, disabled=True)
-        subject = st.text_input("المادة الدراسية (مثال: المهارات الرقمية):")
-        
-    with col2:
-        grade = st.selectbox("الصف الدراسي:", GRADES_LIST, key="grade_selectbox")
-        
-        if grade == "الأول متوسط":
-            section_options = ["أول أول", "أول ثاني"]
-        elif grade == "الثاني متوسط":
-            section_options = ["ثاني أول", "ثاني ثاني", "ثاني ثالث"]
-        elif grade == "الثالث متوسط":
-            section_options = ["ثالث أول", "ثالث ثاني", "ثالث ثالث"]
-        else:
-            section_options = ["1", "2", "3"]
-            
-        section = st.selectbox("الفصل / الشعبة:", section_options, key="section_selectbox")
-        period = st.selectbox("رقم الحصة:", PERIODS_LIST)
-        # عرض وقت الحصة تلقائيًا حسب الجدول الزمني للمدرسة
-        st.text_input("وقت الحصة (تلقائي حسب الجدول):", value=get_period_time(period), disabled=True)
-        zoom_link = st.text_input("رابط الزوم (Zoom Link):", placeholder="ألصق رابط الحصة هنا")
-        
-    submit_button = st.button("💾 حفظ وإرسال الرابط إلى Supabase", use_container_width=True)
-    
-    if submit_button:
-        if not teacher_name or not zoom_link:
-            st.error("⚠️ يرجى التأكد من اختيار/كتابة اسم المعلم ولصق رابط الزوم كاملاً!")
-        elif not zoom_link.startswith("http"):
-            st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
-        else:
-            success, msg = insert_record(teacher_name, day_name, lesson_date.strftime("%Y-%m-%d"), grade, section, period, zoom_link, subject)
-            if success:
-                st.success(f"✅ تم حفظ رابط الحصة بنجاح للمعلم ({teacher_name}) - {grade} ({section}) - {period}!")
+    # تبويبان: تسجيل حصة جديدة — أو — تعديل حصة مسجلة مسبقًا
+    reg_tab, edit_tab = st.tabs(["➕ تسجيل حصة جديدة", "✏️ تعديل حصة مسجلة"])
+
+    # ============ تبويب تسجيل حصة جديدة ============
+    with reg_tab:
+        st.subheader("📝 نموذج إضافة رابط حصة افتراضية جديد")
+        st.info("💡 اختر البيانات واضغط حفظ لإرسال الرابط مباشرة. الحقول المعلّمة بـ (*) إجبارية.")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            teacher_select = st.selectbox("اسم المعلم:", TEACHERS_LIST, key="reg_teacher")
+            if teacher_select == "معلم آخر (أدخل الاسم)":
+                teacher_name = st.text_input("أدخل اسم المعلم الثلاثي:", key="reg_teacher_other")
             else:
-                st.error(f"⚠️ {msg}")
+                teacher_name = teacher_select
+
+            lesson_date = st.date_input("تاريخ الحصة:", value=date.today(), key="reg_date")
+            # يُشتق اسم اليوم تلقائيًا من التاريخ لضمان التطابق
+            day_name = arabic_day_name(lesson_date)
+            st.text_input("اليوم (تلقائي حسب التاريخ):", value=day_name, disabled=True, key="reg_day")
+            subject = st.text_input("المادة الدراسية (*) (مثال: المهارات الرقمية):", key="reg_subject")
+
+        with col2:
+            grade = st.selectbox("الصف الدراسي:", GRADES_LIST, key="grade_selectbox")
+
+            if grade == "الأول متوسط":
+                section_options = ["أول أول", "أول ثاني"]
+            elif grade == "الثاني متوسط":
+                section_options = ["ثاني أول", "ثاني ثاني", "ثاني ثالث"]
+            elif grade == "الثالث متوسط":
+                section_options = ["ثالث أول", "ثالث ثاني", "ثالث ثالث"]
+            else:
+                section_options = ["1", "2", "3"]
+
+            section = st.selectbox("الفصل / الشعبة:", section_options, key="section_selectbox")
+            period = st.selectbox("رقم الحصة:", PERIODS_LIST, key="reg_period")
+            # عرض وقت الحصة تلقائيًا حسب الجدول الزمني للمدرسة
+            st.text_input("وقت الحصة (تلقائي حسب الجدول):", value=get_period_time(period), disabled=True, key="reg_time")
+            zoom_link = st.text_input("رابط الزوم (Zoom Link):", placeholder="ألصق رابط الحصة هنا", key="reg_link")
+
+        submit_button = st.button("💾 حفظ وإرسال الرابط إلى Supabase", use_container_width=True, key="reg_submit")
+
+        if submit_button:
+            if not teacher_name or not zoom_link:
+                st.error("⚠️ يرجى التأكد من اختيار/كتابة اسم المعلم ولصق رابط الزوم كاملاً!")
+            elif not subject or not subject.strip():
+                st.error("⚠️ حقل المادة الدراسية إجباري — يرجى كتابة اسم المادة قبل الحفظ!")
+            elif not zoom_link.startswith("http"):
+                st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
+            else:
+                success, msg = insert_record(teacher_name, day_name, lesson_date.strftime("%Y-%m-%d"), grade, section, period, zoom_link, subject.strip())
+                if success:
+                    st.success(f"✅ تم حفظ رابط الحصة بنجاح للمعلم ({teacher_name}) - {grade} ({section}) - {period}!")
+                else:
+                    st.error(f"⚠️ {msg}")
+
+    # ============ تبويب تعديل حصة مسجلة ============
+    with edit_tab:
+        st.subheader("✏️ تعديل بيانات حصة مسجلة")
+        st.info("💡 اختر تاريخ الحصة ثم الحصة المراد تعديلها، عدّل الحقول ثم اضغط حفظ التعديلات.")
+
+        edit_date = st.date_input("تاريخ الحصة المراد تعديلها:", value=date.today(), key="edit_date_pick")
+        df_edit = fetch_records(filter_date=edit_date.strftime("%Y-%m-%d"))
+        df_edit = sort_by_period(df_edit)
+
+        if df_edit is None or df_edit.empty:
+            st.warning("ℹ️ لا توجد حصص مسجلة في هذا التاريخ لتعديلها.")
+        else:
+            rec_options = {}
+            for _, r in df_edit.iterrows():
+                lbl = f"① {r.get('period','-')} — {r.get('teacher_name','-')} — {r.get('subject') or 'بدون مادة'} — ({r.get('grade','-')} / {r.get('section','-')})"
+                rec_options[lbl] = r
+            chosen = st.selectbox("اختر الحصة المراد تعديلها:", list(rec_options.keys()), key="edit_rec_sel")
+            rec = rec_options[chosen]
+            rec_id = rec.get('id')
+
+            e1, e2 = st.columns(2)
+            with e1:
+                _t = str(rec.get('teacher_name', '') or '')
+                _tidx = TEACHERS_LIST.index(_t) if _t in TEACHERS_LIST else len(TEACHERS_LIST) - 1
+                e_teacher_sel = st.selectbox("اسم المعلم:", TEACHERS_LIST, index=_tidx, key="edit_teacher")
+                if e_teacher_sel == "معلم آخر (أدخل الاسم)":
+                    e_teacher = st.text_input("أدخل اسم المعلم الثلاثي:", value=(_t if _t not in TEACHERS_LIST else ""), key="edit_teacher_other")
+                else:
+                    e_teacher = e_teacher_sel
+
+                try:
+                    _d = datetime.strptime(str(rec.get('lesson_date')), "%Y-%m-%d").date()
+                except Exception:
+                    _d = edit_date
+                e_date = st.date_input("تاريخ الحصة:", value=_d, key="edit_lesson_date")
+                e_day = arabic_day_name(e_date)
+                st.text_input("اليوم (تلقائي):", value=e_day, disabled=True, key="edit_day")
+                e_subject = st.text_input("المادة الدراسية (*):", value=str(rec.get('subject') or ''), key="edit_subject")
+
+            with e2:
+                _g = str(rec.get('grade', '') or '')
+                _gidx = GRADES_LIST.index(_g) if _g in GRADES_LIST else 0
+                e_grade = st.selectbox("الصف الدراسي:", GRADES_LIST, index=_gidx, key="edit_grade")
+
+                if e_grade == "الأول متوسط":
+                    e_sec_opts = ["أول أول", "أول ثاني"]
+                elif e_grade == "الثاني متوسط":
+                    e_sec_opts = ["ثاني أول", "ثاني ثاني", "ثاني ثالث"]
+                elif e_grade == "الثالث متوسط":
+                    e_sec_opts = ["ثالث أول", "ثالث ثاني", "ثالث ثالث"]
+                else:
+                    e_sec_opts = ["1", "2", "3"]
+                _s = str(rec.get('section', '') or '')
+                _sidx = e_sec_opts.index(_s) if _s in e_sec_opts else 0
+                e_section = st.selectbox("الفصل / الشعبة:", e_sec_opts, index=_sidx, key="edit_section")
+
+                _p = str(rec.get('period', '') or '')
+                _pidx = PERIODS_LIST.index(_p) if _p in PERIODS_LIST else 0
+                e_period = st.selectbox("رقم الحصة:", PERIODS_LIST, index=_pidx, key="edit_period")
+                st.text_input("وقت الحصة (تلقائي):", value=get_period_time(e_period), disabled=True, key="edit_time")
+                e_link = st.text_input("رابط الزوم (Zoom Link):", value=str(rec.get('zoom_link') or ''), key="edit_link")
+
+            if st.button("💾 حفظ التعديلات", use_container_width=True, key="edit_submit"):
+                if not e_teacher or not e_link:
+                    st.error("⚠️ يرجى التأكد من اسم المعلم ورابط الزوم!")
+                elif not e_subject or not e_subject.strip():
+                    st.error("⚠️ حقل المادة الدراسية إجباري — يرجى كتابة اسم المادة!")
+                elif not e_link.startswith("http"):
+                    st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
+                else:
+                    ok, msg = update_record(rec_id, e_teacher, e_day, e_date.strftime("%Y-%m-%d"), e_grade, e_section, e_period, e_link, e_subject.strip())
+                    if ok:
+                        st.success("✅ تم حفظ تعديلات الحصة بنجاح!")
+                        st.rerun()
+                    else:
+                        st.error(f"⚠️ {msg}")
 
 else:
     if not st.session_state["authenticated"]:
         st.subheader("🔒 منطقة محمية (خاصة بالإدارة والكنترول)")
         st.info("يرجى إدخال كلمة المرور للوصول إلى التقرير اليومي ولوحة تحكم النظام.")
-        
+
         col_p1, col_p2 = st.columns([3, 1])
         with col_p1:
             pwd_input = st.text_input("كلمة المرور:", type="password", key="admin_password_field")
@@ -838,7 +944,7 @@ else:
             st.write("")
             st.write("")
             btn_login = st.button("🔓 دخول للإدارة")
-            
+
         if btn_login or pwd_input:
             if pwd_input == "666666":
                 st.session_state["authenticated"] = True
@@ -849,7 +955,7 @@ else:
     else:
         if menu == "📊 التقرير اليومي ولوحة التحكم (الإدارة)":
             st.subheader("📊 جدول ورصد روابط الحصص اليومية والطباعة والتصدير")
-            
+
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
                 selected_date = st.date_input("اختر تاريخ التقرير:", value=date.today())
@@ -857,7 +963,7 @@ else:
                 selected_grade = st.selectbox("تصفية العرض حسب الصف:", ["الكل"] + GRADES_LIST)
             with col_f3:
                 selected_section_filter = st.selectbox("تصفية العرض حسب الفصل:", ["الكل"] + ALL_SECTIONS)
-                
+
             date_str = selected_date.strftime("%Y-%m-%d")
             df = fetch_records(
                 filter_date=date_str, 
@@ -866,11 +972,11 @@ else:
             )
             # ترتيب الحصص حسب تسلسلها (الأولى ← السابعة)
             df = sort_by_period(df)
-            
+
             day_name_str = arabic_day_name(selected_date)
-            
+
             st.markdown(f"### 📋 حصص يوم {day_name_str} الموافق ({date_str})")
-            
+
             if df.empty:
                 st.warning("ℹ️ لا توجد روابط حصص مسجلة لهذا التاريخ أو المصفى المختار.")
             else:
@@ -878,9 +984,9 @@ else:
                 c1.metric("إجمالي الحصص المسجلة", len(df))
                 c2.metric("عدد المعلمين المشاركين", df['teacher_name'].nunique() if 'teacher_name' in df.columns else 0)
                 c3.metric("الصفوف المكتملة", df['grade'].nunique() if 'grade' in df.columns else 0)
-                
+
                 st.divider()
-                
+
                 cols_to_show = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period', 'zoom_link'] if c in df.columns]
                 display_df = df[cols_to_show].copy()
                 display_df.columns = ['المعلم', 'المادة', 'الصف', 'الفصل', 'الحصة', 'رابط الزوم'][:len(cols_to_show)]
@@ -888,15 +994,15 @@ else:
                 if 'الحصة' in display_df.columns:
                     _pos = display_df.columns.get_loc('الحصة') + 1
                     display_df.insert(_pos, 'وقت الحصة', display_df['الحصة'].map(get_period_time))
-                
+
                 st.dataframe(display_df, use_container_width=True)
-                
+
                 st.divider()
-                
+
                 st.markdown("### 🖨️ خيارات الطباعة والتصدير (PDF / HTML / Excel)")
-                
+
                 tab1, tab2, tab3 = st.tabs(["📄 التقرير العام الشامل", "🎯 تقرير فصل منفصل", "📊 تصدير Excel"])
-                
+
                 with tab1:
                     st.write("تقرير كلي لجميع الحصص والصفوف المسجلة لهذا اليوم — اختر صيغة التصدير:")
                     fmt_all = st.radio(
@@ -922,21 +1028,21 @@ else:
                             use_container_width=True
                         )
                         st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
-                    
+
                 with tab2:
                     st.write("اختر فصلاً محداً لطباعة تقرير منفصل به فقط:")
                     target_sec = st.selectbox("اختر الفصل المراد طباعته:", ALL_SECTIONS, key="print_single_section")
-                    
+
                     if 'section' in df.columns:
                         df_sec = df[df['section'] == target_sec]
                     else:
                         df_sec = pd.DataFrame()
-                        
+
                     if df_sec.empty:
                         st.info(f"لا توجد حصص مسجلة لفصل ({target_sec}) في تاريخ {date_str}.")
                     else:
                         st.success(f"تم العثور على {len(df_sec)} حصة مسجلة لفصل ({target_sec}).")
-                    
+
                     fmt_sec = st.radio(
                         "صيغة الملف:", ["PDF", "HTML"],
                         horizontal=True, key="fmt_sec"
@@ -960,14 +1066,14 @@ else:
                             use_container_width=True
                         )
                         st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
-                    
+
                 with tab3:
                     st.write("تصدير الجدول إلى ملف Excel للتعديل أو الأرشفة:")
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         display_df.to_excel(writer, index=False, sheet_name="الحصص")
                     excel_bytes = excel_buffer.getvalue()
-                    
+
                     st.download_button(
                         label="📊 تصدير البيانات إلى ملف Excel (.xlsx)",
                         data=excel_bytes,
@@ -978,27 +1084,60 @@ else:
 
         elif menu == "⚙️ إدارة وتعديل السجلات":
             st.subheader("⚙️ إدارة وتعديل روابط الحصص المسجلة")
-            
+
             selected_date_mgt = st.date_input("اختر تاريخ اليوم للتحكم بالسجلات:", value=date.today())
             date_str_mgt = selected_date_mgt.strftime("%Y-%m-%d")
-            
+
             df_mgt = fetch_records(filter_date=date_str_mgt)
-            
-            if df_mgt.empty:
+            df_mgt = sort_by_period(df_mgt)
+
+            if df_mgt is None or df_mgt.empty:
                 st.info("لا توجد سجلات متاحة للتعديل أو الحذف في هذا التاريخ.")
             else:
-                st.write("اختر السجل الذي ترغب في حذفه أو تعديله:")
-                for idx, row in df_mgt.iterrows():
-                    with st.expander(f"📌 {row.get('teacher_name', 'معلم')} | {row.get('grade', '-')} - {row.get('section', '-')} | {row.get('period', '-')} | {get_period_time(row.get('period', ''))}"):
-                        st.write(f"**المادة:** {row.get('subject') or 'غير محددة'}")
-                        st.write(f"**وقت الحصة:** {get_period_time(row.get('period', ''))}")
-                        st.write(f"**الرابط:** [{row.get('zoom_link')}]({row.get('zoom_link')})")
-                        if st.button(f"❌ حذف هذا السجل (رقم {row.get('id')})", key=f"del_{row.get('id')}"):
-                            if delete_record(row.get('id')):
-                                st.success("تم حذف السجل بنجاح من Supabase!")
-                                st.rerun()
-                            else:
-                                st.error("تعذر حذف السجل من Supabase.")
+                # عرض السجلات في جدول واضح (بدل الـ expander المتداخل) لتفادي تداخل النص العربي
+                st.markdown("#### 📋 الحصص المسجلة في هذا التاريخ")
+                _mgt_cols = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period'] if c in df_mgt.columns]
+                tbl = df_mgt[_mgt_cols].copy()
+                _rename = {'teacher_name': 'المعلم', 'subject': 'المادة', 'grade': 'الصف', 'section': 'الفصل', 'period': 'الحصة'}
+                tbl = tbl.rename(columns=_rename)
+                if 'المادة' in tbl.columns:
+                    tbl['المادة'] = tbl['المادة'].map(lambda s: s if (s and str(s).strip()) else 'بدون مادة')
+                if 'الحصة' in tbl.columns:
+                    _p = tbl.columns.get_loc('الحصة') + 1
+                    tbl.insert(_p, 'وقت الحصة', df_mgt['period'].map(get_period_time).values)
+                st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+                st.divider()
+                st.markdown("#### 🗑️ حذف حصة مسجلة")
+                st.caption("لتعديل حصة استخدم تبويب (✏️ تعديل حصة مسجلة) في صفحة تسجيل المعلم.")
+
+                # أداة اختيار واضحة بدل عناوين الـ expander المتداخلة
+                mgt_options = {}
+                for _, row in df_mgt.iterrows():
+                    lbl = f"① {row.get('period','-')} — {row.get('teacher_name','-')} — {row.get('subject') or 'بدون مادة'} — ({row.get('grade','-')} / {row.get('section','-')})"
+                    mgt_options[lbl] = row
+                sel_lbl = st.selectbox("اختر الحصة:", list(mgt_options.keys()), key="mgt_sel")
+                srow = mgt_options[sel_lbl]
+
+                # عرض تفاصيل الحصة في بطاقة مرتبة (أعمدة منفصلة بلا تداخل)
+                d1, d2, d3 = st.columns(3)
+                d1.markdown(f"**المعلم:** {srow.get('teacher_name','-')}")
+                d2.markdown(f"**المادة:** {srow.get('subject') or 'غير محددة'}")
+                d3.markdown(f"**الحصة:** {srow.get('period','-')} ({get_period_time(srow.get('period',''))})")
+                d4, d5 = st.columns(2)
+                d4.markdown(f"**الصف / الفصل:** {srow.get('grade','-')} - {srow.get('section','-')}")
+                _lnk = str(srow.get('zoom_link') or '')
+                if _lnk.startswith("http"):
+                    d5.markdown(f"**الرابط:** [فتح الرابط]({_lnk})")
+                else:
+                    d5.markdown("**الرابط:** —")
+
+                if st.button(f"❌ حذف هذه الحصة (رقم {srow.get('id')})", key=f"mgt_del_{srow.get('id')}", use_container_width=True):
+                    if delete_record(srow.get('id')):
+                        st.success("تم حذف السجل بنجاح من Supabase!")
+                        st.rerun()
+                    else:
+                        st.error("تعذر حذف السجل من Supabase.")
 
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: #777; font-size: 13px;'>تطوير نظام إدارة التعليم | متوسطة الثغر النموذجية الأهلية - بالرياض © 1448 هـ</p>", unsafe_allow_html=True)
