@@ -798,8 +798,8 @@ TEACHERS_LIST = [
 ]
 
 if menu == "📝 تسجيل رابط حصة (المعلم)":
-    # تبويبان: تسجيل حصة جديدة — أو — تعديل حصة مسجلة مسبقًا
-    reg_tab, edit_tab = st.tabs(["➕ تسجيل حصة جديدة", "✏️ تعديل حصة مسجلة"])
+    # تبويبات: تسجيل حصة جديدة — تعديل حصة مسجلة — عرض حصص المعلم
+    reg_tab, edit_tab, view_tab = st.tabs(["➕ تسجيل حصة جديدة", "✏️ تعديل حصة مسجلة", "👁️ عرض حصصي وتصديرها PDF"])
 
     # ============ تبويب تسجيل حصة جديدة ============
     with reg_tab:
@@ -931,6 +931,60 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
                         st.rerun()
                     else:
                         st.error(f"⚠️ {msg}")
+
+    # ============ تبويب عرض حصص المعلم وتصديرها PDF ============
+    with view_tab:
+        st.subheader("👁️ عرض حصص المعلم وتصديرها PDF")
+        st.info("💡 اختر اسمك وتاريخ اليوم لعرض جدول الحصص التي أضفتها، ثم حمّلها كملف PDF رسمي.")
+
+        v1, v2 = st.columns(2)
+        with v1:
+            v_teacher_sel = st.selectbox("اسم المعلم:", TEACHERS_LIST, key="view_teacher")
+            if v_teacher_sel == "معلم آخر (أدخل الاسم)":
+                v_teacher = st.text_input("أدخل اسم المعلم الثلاثي:", key="view_teacher_other")
+            else:
+                v_teacher = v_teacher_sel
+        with v2:
+            v_date = st.date_input("تاريخ اليوم:", value=date.today(), key="view_date")
+
+        v_date_str = v_date.strftime("%Y-%m-%d")
+        v_day_str = arabic_day_name(v_date)
+
+        if not v_teacher or not str(v_teacher).strip():
+            st.warning("ℹ️ يرجى اختيار/كتابة اسم المعلم أولاً.")
+        else:
+            v_df = fetch_records(filter_date=v_date_str)
+            # تصفية حسب اسم المعلم المختار
+            if v_df is not None and not v_df.empty and 'teacher_name' in v_df.columns:
+                v_df = v_df[v_df['teacher_name'] == v_teacher]
+            v_df = sort_by_period(v_df)
+
+            st.markdown(f"### 📋 حصص المعلم ({v_teacher}) — يوم {v_day_str} ({v_date_str})")
+
+            if v_df is None or v_df.empty:
+                st.warning("ℹ️ لا توجد حصص مسجلة لهذا المعلم في هذا التاريخ.")
+            else:
+                st.success(f"✅ تم العثور على {len(v_df)} حصة مسجلة.")
+                _v_cols = [c for c in ['subject', 'grade', 'section', 'period', 'zoom_link'] if c in v_df.columns]
+                v_tbl = v_df[_v_cols].copy()
+                _v_rename = {'subject': 'المادة', 'grade': 'الصف', 'section': 'الفصل', 'period': 'الحصة', 'zoom_link': 'رابط الزوم'}
+                v_tbl = v_tbl.rename(columns=_v_rename)
+                if 'المادة' in v_tbl.columns:
+                    v_tbl['المادة'] = v_tbl['المادة'].map(lambda s: s if (s and str(s).strip()) else 'بدون مادة')
+                if 'الحصة' in v_tbl.columns:
+                    _vp = v_tbl.columns.get_loc('الحصة') + 1
+                    v_tbl.insert(_vp, 'وقت الحصة', v_df['period'].map(get_period_time).values)
+                st.dataframe(v_tbl, use_container_width=True, hide_index=True)
+
+                st.divider()
+                v_pdf = generate_perfect_pdf_report(v_df, v_date_str, v_day_str, section_title=f"حصص المعلم: {v_teacher}")
+                st.download_button(
+                    label="🖨️ تحميل جدول حصصي (PDF)",
+                    data=v_pdf,
+                    file_name=f"حصص_{v_teacher}_{v_date_str}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
 else:
     if not st.session_state["authenticated"]:
