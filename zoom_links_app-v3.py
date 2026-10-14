@@ -818,7 +818,7 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
             lesson_date = st.date_input("تاريخ الحصة:", value=date.today(), key="reg_date")
             # يُشتق اسم اليوم تلقائيًا من التاريخ لضمان التطابق
             day_name = arabic_day_name(lesson_date)
-            st.text_input("اليوم (تلقائي حسب التاريخ):", value=day_name, disabled=True, key="reg_day")
+            st.text_input("اليوم (تلقائي حسب التاريخ):", value=day_name, disabled=True)
             subject = st.text_input("المادة الدراسية (*) (مثال: المهارات الرقمية):", key="reg_subject")
 
         with col2:
@@ -836,7 +836,7 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
             section = st.selectbox("الفصل / الشعبة:", section_options, key="section_selectbox")
             period = st.selectbox("رقم الحصة:", PERIODS_LIST, key="reg_period")
             # عرض وقت الحصة تلقائيًا حسب الجدول الزمني للمدرسة
-            st.text_input("وقت الحصة (تلقائي حسب الجدول):", value=get_period_time(period), disabled=True, key="reg_time")
+            st.text_input("وقت الحصة (تلقائي حسب الجدول):", value=get_period_time(period), disabled=True)
             zoom_link = st.text_input("رابط الزوم (Zoom Link):", placeholder="ألصق رابط الحصة هنا", key="reg_link")
 
         submit_button = st.button("💾 حفظ وإرسال الرابط إلى Supabase", use_container_width=True, key="reg_submit")
@@ -891,7 +891,7 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
                     _d = edit_date
                 e_date = st.date_input("تاريخ الحصة:", value=_d, key="edit_lesson_date")
                 e_day = arabic_day_name(e_date)
-                st.text_input("اليوم (تلقائي):", value=e_day, disabled=True, key="edit_day")
+                st.text_input("اليوم (تلقائي):", value=e_day, disabled=True)
                 e_subject = st.text_input("المادة الدراسية (*):", value=str(rec.get('subject') or ''), key="edit_subject")
 
             with e2:
@@ -914,7 +914,7 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
                 _p = str(rec.get('period', '') or '')
                 _pidx = PERIODS_LIST.index(_p) if _p in PERIODS_LIST else 0
                 e_period = st.selectbox("رقم الحصة:", PERIODS_LIST, index=_pidx, key="edit_period")
-                st.text_input("وقت الحصة (تلقائي):", value=get_period_time(e_period), disabled=True, key="edit_time")
+                st.text_input("وقت الحصة (تلقائي):", value=get_period_time(e_period), disabled=True)
                 e_link = st.text_input("رابط الزوم (Zoom Link):", value=str(rec.get('zoom_link') or ''), key="edit_link")
 
             if st.button("💾 حفظ التعديلات", use_container_width=True, key="edit_submit"):
