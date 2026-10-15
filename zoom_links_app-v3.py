@@ -855,82 +855,142 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
                 else:
                     st.error(f"⚠️ {msg}")
 
-    # ============ تبويب تعديل حصة مسجلة ============
+    # ============ تبويب تعديل / حذف حصص المعلم ============
     with edit_tab:
-        st.subheader("✏️ تعديل بيانات حصة مسجلة")
-        st.info("💡 اختر تاريخ الحصة ثم الحصة المراد تعديلها، عدّل الحقول ثم اضغط حفظ التعديلات.")
+        st.subheader("✏️ تعديل أو حذف حصص المعلم")
+        st.info("💡 اختر اسمك واليوم لعرض حصصك المضافة، ثم اضغط ✏️ للتعديل أو 🗑️ للحذف.")
 
-        edit_date = st.date_input("تاريخ الحصة المراد تعديلها:", value=date.today(), key="edit_date_pick")
-        df_edit = fetch_records(filter_date=edit_date.strftime("%Y-%m-%d"))
-        df_edit = sort_by_period(df_edit)
+        if "editing_id" not in st.session_state:
+            st.session_state["editing_id"] = None
 
-        if df_edit is None or df_edit.empty:
-            st.warning("ℹ️ لا توجد حصص مسجلة في هذا التاريخ لتعديلها.")
+        ec1, ec2 = st.columns(2)
+        with ec1:
+            et_sel = st.selectbox("اسم المعلم:", TEACHERS_LIST, key="edit_teacher_pick")
+            if et_sel == "معلم آخر (أدخل الاسم)":
+                et_teacher = st.text_input("أدخل اسم المعلم الثلاثي:", key="edit_teacher_pick_other")
+            else:
+                et_teacher = et_sel
+        with ec2:
+            edit_date = st.date_input("تاريخ اليوم:", value=date.today(), key="edit_date_pick")
+
+        if not et_teacher or not str(et_teacher).strip():
+            st.warning("ℹ️ يرجى اختيار/كتابة اسم المعلم أولاً.")
         else:
-            rec_options = {}
-            for _, r in df_edit.iterrows():
-                lbl = f"① {r.get('period','-')} — {r.get('teacher_name','-')} — {r.get('subject') or 'بدون مادة'} — ({r.get('grade','-')} / {r.get('section','-')})"
-                rec_options[lbl] = r
-            chosen = st.selectbox("اختر الحصة المراد تعديلها:", list(rec_options.keys()), key="edit_rec_sel")
-            rec = rec_options[chosen]
-            rec_id = rec.get('id')
+            edit_date_str = edit_date.strftime("%Y-%m-%d")
+            df_edit = fetch_records(filter_date=edit_date_str)
+            if df_edit is not None and not df_edit.empty and 'teacher_name' in df_edit.columns:
+                df_edit = df_edit[df_edit['teacher_name'] == et_teacher]
+            df_edit = sort_by_period(df_edit)
 
-            e1, e2 = st.columns(2)
-            with e1:
-                _t = str(rec.get('teacher_name', '') or '')
-                _tidx = TEACHERS_LIST.index(_t) if _t in TEACHERS_LIST else len(TEACHERS_LIST) - 1
-                e_teacher_sel = st.selectbox("اسم المعلم:", TEACHERS_LIST, index=_tidx, key="edit_teacher")
-                if e_teacher_sel == "معلم آخر (أدخل الاسم)":
-                    e_teacher = st.text_input("أدخل اسم المعلم الثلاثي:", value=(_t if _t not in TEACHERS_LIST else ""), key="edit_teacher_other")
-                else:
-                    e_teacher = e_teacher_sel
+            st.markdown(f"### 📋 حصص المعلم ({et_teacher}) — يوم {arabic_day_name(edit_date)} ({edit_date_str})")
 
-                try:
-                    _d = datetime.strptime(str(rec.get('lesson_date')), "%Y-%m-%d").date()
-                except Exception:
-                    _d = edit_date
-                e_date = st.date_input("تاريخ الحصة:", value=_d, key="edit_lesson_date")
-                e_day = arabic_day_name(e_date)
-                st.text_input("اليوم (تلقائي):", value=e_day, disabled=True)
-                e_subject = st.text_input("المادة الدراسية (*):", value=str(rec.get('subject') or ''), key="edit_subject")
+            if df_edit is None or df_edit.empty:
+                st.warning("ℹ️ لا توجد حصص مسجلة لهذا المعلم في هذا التاريخ.")
+                st.session_state["editing_id"] = None
+            else:
+                # رأس الجدول
+                hcols = st.columns([3, 2, 2, 3, 1, 1])
+                hcols[0].markdown("**المادة**")
+                hcols[1].markdown("**الصف**")
+                hcols[2].markdown("**الفصل**")
+                hcols[3].markdown("**الحصة / الوقت**")
+                hcols[4].markdown("**تعديل**")
+                hcols[5].markdown("**حذف**")
+                st.divider()
 
-            with e2:
-                _g = str(rec.get('grade', '') or '')
-                _gidx = GRADES_LIST.index(_g) if _g in GRADES_LIST else 0
-                e_grade = st.selectbox("الصف الدراسي:", GRADES_LIST, index=_gidx, key="edit_grade")
-
-                if e_grade == "الأول متوسط":
-                    e_sec_opts = ["أول أول", "أول ثاني"]
-                elif e_grade == "الثاني متوسط":
-                    e_sec_opts = ["ثاني أول", "ثاني ثاني", "ثاني ثالث"]
-                elif e_grade == "الثالث متوسط":
-                    e_sec_opts = ["ثالث أول", "ثالث ثاني", "ثالث ثالث"]
-                else:
-                    e_sec_opts = ["1", "2", "3"]
-                _s = str(rec.get('section', '') or '')
-                _sidx = e_sec_opts.index(_s) if _s in e_sec_opts else 0
-                e_section = st.selectbox("الفصل / الشعبة:", e_sec_opts, index=_sidx, key="edit_section")
-
-                _p = str(rec.get('period', '') or '')
-                _pidx = PERIODS_LIST.index(_p) if _p in PERIODS_LIST else 0
-                e_period = st.selectbox("رقم الحصة:", PERIODS_LIST, index=_pidx, key="edit_period")
-                st.text_input("وقت الحصة (تلقائي):", value=get_period_time(e_period), disabled=True)
-                e_link = st.text_input("رابط الزوم (Zoom Link):", value=str(rec.get('zoom_link') or ''), key="edit_link")
-
-            if st.button("💾 حفظ التعديلات", use_container_width=True, key="edit_submit"):
-                if not e_teacher or not e_link:
-                    st.error("⚠️ يرجى التأكد من اسم المعلم ورابط الزوم!")
-                elif not e_subject or not e_subject.strip():
-                    st.error("⚠️ حقل المادة الدراسية إجباري — يرجى كتابة اسم المادة!")
-                elif not e_link.startswith("http"):
-                    st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
-                else:
-                    ok, msg = update_record(rec_id, e_teacher, e_day, e_date.strftime("%Y-%m-%d"), e_grade, e_section, e_period, e_link, e_subject.strip())
-                    if ok:
-                        st.success("✅ تم حفظ تعديلات الحصة بنجاح!")
+                for _, r in df_edit.iterrows():
+                    rid = r.get('id')
+                    rc = st.columns([3, 2, 2, 3, 1, 1])
+                    rc[0].write(r.get('subject') or 'بدون مادة')
+                    rc[1].write(str(r.get('grade', '-')))
+                    rc[2].write(str(r.get('section', '-')))
+                    rc[3].write(f"{r.get('period','-')} ({get_period_time(r.get('period',''))})")
+                    if rc[4].button("✏️", key=f"editbtn_{rid}", help="تعديل هذه الحصة"):
+                        st.session_state["editing_id"] = rid
                         st.rerun()
+                    if rc[5].button("🗑️", key=f"delbtn_{rid}", help="حذف هذه الحصة"):
+                        if delete_record(rid):
+                            if st.session_state.get("editing_id") == rid:
+                                st.session_state["editing_id"] = None
+                            st.success("✅ تم حذف الحصة بنجاح!")
+                            st.rerun()
+                        else:
+                            st.error("⚠️ تعذر حذف الحصة من Supabase.")
+
+                # نموذج التعديل يظهر أسفل الجدول عند الضغط على ✏️
+                editing_id = st.session_state.get("editing_id")
+                if editing_id is not None:
+                    _match = df_edit[df_edit['id'] == editing_id]
+                    if _match.empty:
+                        st.session_state["editing_id"] = None
                     else:
-                        st.error(f"⚠️ {msg}")
+                        rec = _match.iloc[0]
+                        rec_id = rec.get('id')
+                        st.divider()
+                        st.markdown(f"#### ✏️ تعديل الحصة رقم {rec_id}")
+
+                        e1, e2 = st.columns(2)
+                        with e1:
+                            _t = str(rec.get('teacher_name', '') or '')
+                            _tidx = TEACHERS_LIST.index(_t) if _t in TEACHERS_LIST else len(TEACHERS_LIST) - 1
+                            e_teacher_sel = st.selectbox("اسم المعلم:", TEACHERS_LIST, index=_tidx, key="edit_teacher")
+                            if e_teacher_sel == "معلم آخر (أدخل الاسم)":
+                                e_teacher = st.text_input("أدخل اسم المعلم الثلاثي:", value=(_t if _t not in TEACHERS_LIST else ""), key="edit_teacher_other")
+                            else:
+                                e_teacher = e_teacher_sel
+
+                            try:
+                                _d = datetime.strptime(str(rec.get('lesson_date')), "%Y-%m-%d").date()
+                            except Exception:
+                                _d = edit_date
+                            e_date = st.date_input("تاريخ الحصة:", value=_d, key="edit_lesson_date")
+                            e_day = arabic_day_name(e_date)
+                            st.text_input("اليوم (تلقائي):", value=e_day, disabled=True)
+                            e_subject = st.text_input("المادة الدراسية (*):", value=str(rec.get('subject') or ''), key="edit_subject")
+
+                        with e2:
+                            _g = str(rec.get('grade', '') or '')
+                            _gidx = GRADES_LIST.index(_g) if _g in GRADES_LIST else 0
+                            e_grade = st.selectbox("الصف الدراسي:", GRADES_LIST, index=_gidx, key="edit_grade")
+
+                            if e_grade == "الأول متوسط":
+                                e_sec_opts = ["أول أول", "أول ثاني"]
+                            elif e_grade == "الثاني متوسط":
+                                e_sec_opts = ["ثاني أول", "ثاني ثاني", "ثاني ثالث"]
+                            elif e_grade == "الثالث متوسط":
+                                e_sec_opts = ["ثالث أول", "ثالث ثاني", "ثالث ثالث"]
+                            else:
+                                e_sec_opts = ["1", "2", "3"]
+                            _s = str(rec.get('section', '') or '')
+                            _sidx = e_sec_opts.index(_s) if _s in e_sec_opts else 0
+                            e_section = st.selectbox("الفصل / الشعبة:", e_sec_opts, index=_sidx, key="edit_section")
+
+                            _p = str(rec.get('period', '') or '')
+                            _pidx = PERIODS_LIST.index(_p) if _p in PERIODS_LIST else 0
+                            e_period = st.selectbox("رقم الحصة:", PERIODS_LIST, index=_pidx, key="edit_period")
+                            st.text_input("وقت الحصة (تلقائي):", value=get_period_time(e_period), disabled=True)
+                            e_link = st.text_input("رابط الزوم (Zoom Link):", value=str(rec.get('zoom_link') or ''), key="edit_link")
+
+                        sv_col, cn_col = st.columns(2)
+                        if sv_col.button("💾 حفظ التعديلات", use_container_width=True, key="edit_submit"):
+                            if not e_teacher or not e_link:
+                                st.error("⚠️ يرجى التأكد من اسم المعلم ورابط الزوم!")
+                            elif not e_subject or not e_subject.strip():
+                                st.error("⚠️ حقل المادة الدراسية إجباري — يرجى كتابة اسم المادة!")
+                            elif not e_link.startswith("http"):
+                                st.warning("⚠️ يرجى إدخال رابط صحيح يبدأ بـ http:// أو https://")
+                            else:
+                                ok, msg = update_record(rec_id, e_teacher, e_day, e_date.strftime("%Y-%m-%d"), e_grade, e_section, e_period, e_link, e_subject.strip())
+                                if ok:
+                                    st.session_state["editing_id"] = None
+                                    st.success("✅ تم حفظ تعديلات الحصة بنجاح!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"⚠️ {msg}")
+                        if cn_col.button("❌ إلغاء التعديل", use_container_width=True, key="edit_cancel"):
+                            st.session_state["editing_id"] = None
+                            st.rerun()
+
 
     # ============ تبويب عرض حصص المعلم وتصديرها PDF ============
     with view_tab:
