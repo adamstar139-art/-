@@ -10,6 +10,7 @@ import re
 import base64
 import tempfile
 import html as _html
+import json
 
 # شعار المدرسة مضمّن Base64 (مع احتياطي حتى لا ينكسر مهما كان موقع التشغيل)
 try:
@@ -89,7 +90,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
 # ---------------------------------------------------------
 # 2. إنشاء شعار مدرسة الثغر وتنسيق الخطوط العربية (RTL)
 # ---------------------------------------------------------
@@ -169,7 +169,6 @@ LAM_ALEF_MAP = {
     ('ل', 'إ'): ('ﻹ', 'ﻺ'),
     ('ل', 'آ'): ('ﻵ', 'ﻶ'),
 }
-
 def ar(text):
     if not text: return ""
     text = str(text)
@@ -299,7 +298,6 @@ def update_record(record_id, teacher, day, date_val, grade, section, period, lin
             return False, f"خطأ من الخادم ({response.status_code}): {response.text}"
     except Exception as e:
         return False, f"تعذر الاتصال بالمشروع: {str(e)}"
-
 def fetch_records(filter_date=None, filter_grade=None, filter_section=None):
     endpoint = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
     params = {
@@ -346,10 +344,47 @@ PERIOD_TIMES = {
     "الحصة السابعة": "11:20 - 12:05",
 }
 
+# ---------------------------------------------------------
+# تخزين أوقات الحصص القابلة للتعديل (دون إنشاء أي جداول في قاعدة البيانات)
+# تُحفظ في ملف JSON بجانب التطبيق، وتنعكس على كل التقارير
+# ---------------------------------------------------------
+_PERIOD_TIMES_FILE = os.path.join(_APP_DIR, "period_times.json")
+
+def _load_saved_period_times():
+    """يقرأ أوقات الحصص المعدّلة المحفوظة (إن وجدت)، وإلا يعيد الأوقات الافتراضية."""
+    times = dict(PERIOD_TIMES)
+    try:
+        if os.path.exists(_PERIOD_TIMES_FILE):
+            with open(_PERIOD_TIMES_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            if isinstance(saved, dict):
+                for k, v in saved.items():
+                    if k in times and isinstance(v, str) and v.strip():
+                        times[k] = v.strip()
+    except Exception:
+        pass
+    return times
+
+def _save_period_times(times_dict):
+    """يحفظ أوقات الحصص المعدّلة في ملف JSON بجانب التطبيق."""
+    try:
+        with open(_PERIOD_TIMES_FILE, "w", encoding="utf-8") as f:
+            json.dump(times_dict, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+def get_effective_period_times():
+    """الأوقات السارية فعليًا: المعدّلة في الجلسة أولاً، ثم المحفوظة بالملف، ثم الافتراضية."""
+    if "period_times_override" in st.session_state:
+        return st.session_state["period_times_override"]
+    loaded = _load_saved_period_times()
+    st.session_state["period_times_override"] = loaded
+    return loaded
+
 def get_period_time(period):
     """يعيد وقت الحصة (بداية - نهاية) المطابق لاسم الحصة، أو '-' إن لم يوجد."""
-    return PERIOD_TIMES.get(str(period).strip(), "-")
-
+    return get_effective_period_times().get(str(period).strip(), "-")
 # ---------------------------------------------------------
 # 4. دالة إنشاء تقرير PDF احترافي بنسب 100% بدون تداخل خطوط
 # ---------------------------------------------------------
@@ -457,7 +492,6 @@ class ThagharFPDF(FPDF):
         self.set_text_color(130, 130, 130)
         gen = datetime.now().strftime("%Y-%m-%d %H:%M")
         self.cell(0, 5, ar("متوسطة الثغر النموذجية الأهلية — الرياض") + "   |   " + ar("تاريخ الإصدار: ") + gen + "   |   " + ar("صفحة ") + str(self.page_no()), align='C')
-
 def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
     pdf = ThagharFPDF()
     pdf.set_auto_page_break(auto=True, margin=20)
@@ -576,7 +610,6 @@ def generate_perfect_pdf_report(df, selected_date, day_str, section_title=""):
     pdf.cell(0, 6, ar("المسؤول التقني والمنصة: محمد سامي السعيد"), align='C', new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
-
 def generate_html_report(df, selected_date, day_str, section_title=""):
     """ينشئ تقرير HTML مستقل بالكامل (RTL) مع الشعار المضمّن وتنسيق احترافي قابل للطباعة."""
     logo_uri = ("data:image/png;base64," + _LOGO_B64) if _LOGO_B64 else ""
@@ -702,7 +735,6 @@ def generate_html_report(df, selected_date, day_str, section_title=""):
 </body>
 </html>"""
     return html_doc.encode("utf-8")
-
 # ---------------------------------------------------------
 # 5. الواجهة الرئيسية والتنقل بين الصفحات
 # ---------------------------------------------------------
@@ -796,7 +828,6 @@ TEACHERS_LIST = [
     "أحمد سلامة",
     "معلم آخر (أدخل الاسم)"
 ]
-
 if menu == "📝 تسجيل رابط حصة (المعلم)":
     # تبويبات: تسجيل حصة جديدة — تعديل حصة مسجلة — عرض حصص المعلم
     reg_tab, edit_tab, view_tab = st.tabs(["➕ تسجيل حصة جديدة", "✏️ تعديل حصة مسجلة", "👁️ عرض حصصي وتصديرها PDF"])
@@ -854,7 +885,6 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
                     st.success(f"✅ تم حفظ رابط الحصة بنجاح للمعلم ({teacher_name}) - {grade} ({section}) - {period}!")
                 else:
                     st.error(f"⚠️ {msg}")
-
     # ============ تبويب تعديل / حذف حصص المعلم ============
     with edit_tab:
         st.subheader("✏️ تعديل أو حذف حصص المعلم")
@@ -991,7 +1021,6 @@ if menu == "📝 تسجيل رابط حصة (المعلم)":
                             st.session_state["editing_id"] = None
                             st.rerun()
 
-
     # ============ تبويب عرض حصص المعلم وتصديرها PDF ============
     with view_tab:
         st.subheader("👁️ عرض حصص المعلم وتصديرها PDF")
@@ -1070,6 +1099,38 @@ else:
         if menu == "📊 التقرير اليومي ولوحة التحكم (الإدارة)":
             st.subheader("📊 جدول ورصد روابط الحصص اليومية والطباعة والتصدير")
 
+            # 🕐 أيقونة تعديل أوقات الحصص (تنعكس على كل التقارير: الشاشة/PDF/HTML/Excel)
+            _cur_times = get_effective_period_times()
+
+            def _period_times_editor():
+                st.caption("عدّل وقت كل حصة ثم اضغط حفظ. تنعكس التغييرات على كل التقارير والجداول.")
+                new_vals = {}
+                for _pname in PERIODS_LIST:
+                    new_vals[_pname] = st.text_input(
+                        _pname, value=_cur_times.get(_pname, "-"),
+                        key=f"ptime_{_pname}",
+                        placeholder="مثال: 6:30 - 7:15"
+                    )
+                _bc1, _bc2 = st.columns(2)
+                if _bc1.button("💾 حفظ الأوقات", use_container_width=True, key="save_ptimes"):
+                    cleaned = {k: (v.strip() if v and v.strip() else PERIOD_TIMES.get(k, "-")) for k, v in new_vals.items()}
+                    st.session_state["period_times_override"] = cleaned
+                    _save_period_times(cleaned)
+                    st.success("✅ تم حفظ أوقات الحصص بنجاح! ستظهر في كل التقارير.")
+                    st.rerun()
+                if _bc2.button("↩️ استعادة الأوقات الافتراضية", use_container_width=True, key="reset_ptimes"):
+                    st.session_state["period_times_override"] = dict(PERIOD_TIMES)
+                    _save_period_times(dict(PERIOD_TIMES))
+                    st.success("✅ تمت استعادة الأوقات الافتراضية.")
+                    st.rerun()
+
+            if hasattr(st, "popover"):
+                with st.popover("🕐 تعديل أوقات الحصص"):
+                    _period_times_editor()
+            else:
+                with st.expander("🕐 تعديل أوقات الحصص"):
+                    _period_times_editor()
+
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
                 selected_date = st.date_input("اختر تاريخ التقرير:", value=date.today())
@@ -1144,114 +1205,127 @@ else:
                         st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
 
                 with tab2:
-                    st.write("اختر فصلاً محداً لطباعة تقرير منفصل به فقط:")
-                    target_sec = st.selectbox("اختر الفصل المراد طباعته:", ALL_SECTIONS, key="print_single_section")
-
-                    if 'section' in df.columns:
-                        df_sec = df[df['section'] == target_sec]
-                    else:
-                        df_sec = pd.DataFrame()
-
-                    if df_sec.empty:
-                        st.info(f"لا توجد حصص مسجلة لفصل ({target_sec}) في تاريخ {date_str}.")
-                    else:
-                        st.success(f"تم العثور على {len(df_sec)} حصة مسجلة لفصل ({target_sec}).")
-
-                    fmt_sec = st.radio(
-                        "صيغة الملف:", ["PDF", "HTML"],
-                        horizontal=True, key="fmt_sec"
-                    )
-                    if fmt_sec == "PDF":
-                        pdf_bytes_sec = generate_perfect_pdf_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
-                        st.download_button(
-                            label=f"📄 تحميل تقرير (فصل {target_sec}) منفصل (PDF)",
-                            data=pdf_bytes_sec,
-                            file_name=f"تقرير_فصل_{target_sec}_{date_str}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True
+                    st.write("اختر فصلاً محدداً لإصدار تقرير خاص به فقط:")
+                    sections_in_data = sorted(df['section'].dropna().unique().tolist()) if 'section' in df.columns else []
+                    if sections_in_data:
+                        chosen_section = st.selectbox("اختر الفصل:", sections_in_data, key="single_section")
+                        df_section = df[df['section'] == chosen_section].copy()
+                        df_section = sort_by_period(df_section)
+                        st.info(f"📌 عدد الحصص في فصل ({chosen_section}): {len(df_section)} حصة")
+                        fmt_sec = st.radio(
+                            "صيغة الملف:", ["PDF", "HTML"],
+                            horizontal=True, key="fmt_sec"
                         )
+                        if fmt_sec == "PDF":
+                            pdf_bytes_section = generate_perfect_pdf_report(df_section, date_str, day_name_str, section_title=f"الفصل: {chosen_section}")
+                            st.download_button(
+                                label=f"🖨️ تحميل تقرير فصل ({chosen_section}) — PDF",
+                                data=pdf_bytes_section,
+                                file_name=f"تقرير_فصل_{chosen_section}_{date_str}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        else:
+                            html_bytes_section = generate_html_report(df_section, date_str, day_name_str, section_title=f"الفصل: {chosen_section}")
+                            st.download_button(
+                                label=f"🌐 تحميل تقرير فصل ({chosen_section}) — HTML",
+                                data=html_bytes_section,
+                                file_name=f"تقرير_فصل_{chosen_section}_{date_str}.html",
+                                mime="text/html",
+                                use_container_width=True
+                            )
+                            st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
                     else:
-                        html_bytes_sec = generate_html_report(df_sec, date_str, day_name_str, section_title=f"فصل {target_sec}")
-                        st.download_button(
-                            label=f"🌐 تحميل تقرير (فصل {target_sec}) منفصل (HTML)",
-                            data=html_bytes_sec,
-                            file_name=f"تقرير_فصل_{target_sec}_{date_str}.html",
-                            mime="text/html",
-                            use_container_width=True
-                        )
-                        st.caption("💡 ملف HTML يفتح في أي متصفح، ويمكن طباعته أو حفظه PDF من المتصفح (Ctrl + P).")
+                        st.warning("ℹ️ لا توجد فصول مسجلة لهذا اليوم.")
 
                 with tab3:
-                    st.write("تصدير الجدول إلى ملف Excel للتعديل أو الأرشفة:")
-                    excel_buffer = io.BytesIO()
-                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        display_df.to_excel(writer, index=False, sheet_name="الحصص")
-                    excel_bytes = excel_buffer.getvalue()
-
-                    st.download_button(
-                        label="📊 تصدير البيانات إلى ملف Excel (.xlsx)",
-                        data=excel_bytes,
-                        file_name=f"جدول_الحصص_{date_str}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-
+                    st.write("تصدير جميع بيانات اليوم إلى ملف Excel (مع عمود وقت الحصة):")
+                    try:
+                        _xl_cols = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period', 'zoom_link'] if c in df.columns]
+                        xl_df = df[_xl_cols].copy()
+                        _xl_rename = {'teacher_name': 'المعلم', 'subject': 'المادة', 'grade': 'الصف', 'section': 'الفصل', 'period': 'الحصة', 'zoom_link': 'رابط الزوم'}
+                        xl_df = xl_df.rename(columns=_xl_rename)
+                        if 'الحصة' in xl_df.columns:
+                            _xp = xl_df.columns.get_loc('الحصة') + 1
+                            xl_df.insert(_xp, 'وقت الحصة', df['period'].map(get_period_time).values)
+                        xl_buffer = io.BytesIO()
+                        with pd.ExcelWriter(xl_buffer, engine='openpyxl') as writer:
+                            xl_df.to_excel(writer, index=False, sheet_name='حصص اليوم')
+                        xl_buffer.seek(0)
+                        st.download_button(
+                            label="📊 تحميل ملف Excel",
+                            data=xl_buffer.getvalue(),
+                            file_name=f"حصص_{date_str}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    except Exception as _xe:
+                        st.error(f"⚠️ تعذر إنشاء ملف Excel: {_xe}")
         elif menu == "⚙️ إدارة وتعديل السجلات":
-            st.subheader("⚙️ إدارة وتعديل روابط الحصص المسجلة")
+            st.subheader("⚙️ إدارة وتعديل سجلات روابط الحصص")
+            st.info("💡 استعرض السجلات المسجلة وحذف أي حصة غير صحيحة. الحذف نهائي ولا يمكن التراجع عنه.")
 
-            selected_date_mgt = st.date_input("اختر تاريخ اليوم للتحكم بالسجلات:", value=date.today())
-            date_str_mgt = selected_date_mgt.strftime("%Y-%m-%d")
+            mg1, mg2, mg3 = st.columns(3)
+            with mg1:
+                mg_date = st.date_input("تصفية حسب التاريخ:", value=date.today(), key="manage_date")
+            with mg2:
+                mg_grade = st.selectbox("تصفية حسب الصف:", ["الكل"] + GRADES_LIST, key="manage_grade")
+            with mg3:
+                mg_section = st.selectbox("تصفية حسب الفصل:", ["الكل"] + ALL_SECTIONS, key="manage_section")
 
-            df_mgt = fetch_records(filter_date=date_str_mgt)
-            df_mgt = sort_by_period(df_mgt)
+            mg_date_str = mg_date.strftime("%Y-%m-%d")
+            mg_df = fetch_records(filter_date=mg_date_str, filter_grade=mg_grade, filter_section=mg_section)
+            mg_df = sort_by_period(mg_df)
 
-            if df_mgt is None or df_mgt.empty:
-                st.info("لا توجد سجلات متاحة للتعديل أو الحذف في هذا التاريخ.")
+            st.markdown(f"### 🗜️ سجلات يوم {arabic_day_name(mg_date)} ({mg_date_str})")
+
+            if mg_df is None or mg_df.empty:
+                st.warning("ℹ️ لا توجد سجلات مطابقة للمصفّي المختار.")
             else:
-                # عرض السجلات في جدول واضح (بدل الـ expander المتداخل) لتفادي تداخل النص العربي
-                st.markdown("#### 📋 الحصص المسجلة في هذا التاريخ")
-                _mgt_cols = [c for c in ['teacher_name', 'subject', 'grade', 'section', 'period'] if c in df_mgt.columns]
-                tbl = df_mgt[_mgt_cols].copy()
-                _rename = {'teacher_name': 'المعلم', 'subject': 'المادة', 'grade': 'الصف', 'section': 'الفصل', 'period': 'الحصة'}
-                tbl = tbl.rename(columns=_rename)
-                if 'المادة' in tbl.columns:
-                    tbl['المادة'] = tbl['المادة'].map(lambda s: s if (s and str(s).strip()) else 'بدون مادة')
-                if 'الحصة' in tbl.columns:
-                    _p = tbl.columns.get_loc('الحصة') + 1
-                    tbl.insert(_p, 'وقت الحصة', df_mgt['period'].map(get_period_time).values)
-                st.dataframe(tbl, use_container_width=True, hide_index=True)
+                st.success(f"✅ إجمالي السجلات: {len(mg_df)}")
+
+                hdr = st.columns([3, 3, 2, 2, 3, 1])
+                hdr[0].markdown("**المعلم**")
+                hdr[1].markdown("**المادة**")
+                hdr[2].markdown("**الصف**")
+                hdr[3].markdown("**الفصل**")
+                hdr[4].markdown("**الحصة / الوقت**")
+                hdr[5].markdown("**حذف**")
+                st.divider()
+
+                for _, mr in mg_df.iterrows():
+                    mrid = mr.get('id')
+                    mc = st.columns([3, 3, 2, 2, 3, 1])
+                    mc[0].write(mr.get('teacher_name') or '-')
+                    mc[1].write(mr.get('subject') or 'بدون مادة')
+                    mc[2].write(str(mr.get('grade', '-')))
+                    mc[3].write(str(mr.get('section', '-')))
+                    mc[4].write(f"{mr.get('period','-')} ({get_period_time(mr.get('period',''))})")
+                    if mc[5].button("🗑️", key=f"mg_del_{mrid}", help="حذف نهائي لهذا السجل"):
+                        if delete_record(mrid):
+                            st.success("✅ تم حذف السجل بنجاح!")
+                            st.rerun()
+                        else:
+                            st.error("⚠️ تعذر حذف السجل من Supabase.")
 
                 st.divider()
-                st.markdown("#### 🗑️ حذف حصة مسجلة")
-                st.caption("لتعديل حصة استخدم تبويب (✏️ تعديل حصة مسجلة) في صفحة تسجيل المعلم.")
+                # تصدير سريع لكامل سجلات اليوم كملف PDF رسمي
+                mg_pdf = generate_perfect_pdf_report(mg_df, mg_date_str, arabic_day_name(mg_date), section_title="كامل السجلات")
+                st.download_button(
+                    label="🖨️ تحميل كامل السجلات (PDF)",
+                    data=mg_pdf,
+                    file_name=f"سجلات_{mg_date_str}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
-                # أداة اختيار واضحة بدل عناوين الـ expander المتداخلة
-                mgt_options = {}
-                for _, row in df_mgt.iterrows():
-                    lbl = f"① {row.get('period','-')} — {row.get('teacher_name','-')} — {row.get('subject') or 'بدون مادة'} — ({row.get('grade','-')} / {row.get('section','-')})"
-                    mgt_options[lbl] = row
-                sel_lbl = st.selectbox("اختر الحصة:", list(mgt_options.keys()), key="mgt_sel")
-                srow = mgt_options[sel_lbl]
-
-                # عرض تفاصيل الحصة في بطاقة مرتبة (أعمدة منفصلة بلا تداخل)
-                d1, d2, d3 = st.columns(3)
-                d1.markdown(f"**المعلم:** {srow.get('teacher_name','-')}")
-                d2.markdown(f"**المادة:** {srow.get('subject') or 'غير محددة'}")
-                d3.markdown(f"**الحصة:** {srow.get('period','-')} ({get_period_time(srow.get('period',''))})")
-                d4, d5 = st.columns(2)
-                d4.markdown(f"**الصف / الفصل:** {srow.get('grade','-')} - {srow.get('section','-')}")
-                _lnk = str(srow.get('zoom_link') or '')
-                if _lnk.startswith("http"):
-                    d5.markdown(f"**الرابط:** [فتح الرابط]({_lnk})")
-                else:
-                    d5.markdown("**الرابط:** —")
-
-                if st.button(f"❌ حذف هذه الحصة (رقم {srow.get('id')})", key=f"mgt_del_{srow.get('id')}", use_container_width=True):
-                    if delete_record(srow.get('id')):
-                        st.success("تم حذف السجل بنجاح من Supabase!")
-                        st.rerun()
-                    else:
-                        st.error("تعذر حذف السجل من Supabase.")
-
-st.markdown("---")
-st.markdown("<p style='text-align: center; color: #777; font-size: 13px;'>تطوير نظام إدارة التعليم | متوسطة الثغر النموذجية الأهلية - بالرياض © 1448 هـ</p>", unsafe_allow_html=True)
+# ---------------------------------------------------------
+# التذييل
+# ---------------------------------------------------------
+st.divider()
+st.markdown(
+    "<div style='text-align:center; color:#64748b; font-size:0.85rem; padding:10px;'>"
+    "© مدارس الثغر النموذجية الأهلية — نظام إدارة روابط الحصص اليومية | إعداد أ. محمد سامي السعيد"
+    "</div>",
+    unsafe_allow_html=True
+)
